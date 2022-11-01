@@ -92,6 +92,10 @@ btrfs subvolume create /mnt/btrfs-roots/mergerfsdisk2/content
 umount /mnt/btrfs-roots/mergerfsdisk2
 ```
 
+We need to recreate the snapper configurations on this new disk to replace the one we pulled out, otherwise `snapraid-btrfs` will fail with errors complaining about /mnt/disk2/.content not being a btrfs_snapshot. See the other section `Recreate backup configurations to resume snapraid sync` below.
+
+#### Recovery 
+
 Let's remount the old existing `/etc/fstab` that was broken when we pulled the drives.
 
 ```
@@ -120,3 +124,50 @@ Everything OK
 Now we need to verify data (hashing verification stage).
 
 `snapraid -d d2 -a check`
+
+## Recreate backup configurations to resume snapraid sync
+
+```
+rm /etc/snapper/configs/mergerfsdisk2
+```
+
+Delete `mergerfsdisk2` from SNAPPER_CONFIGS variable on file `/etc/default/snapper`.
+
+Recreate on new disk
+
+```
+snapper -c mergerfsdisk2 create-config -t mergerfsdisk /mnt/disk2
+# verify
+snapper list-configs
+```
+
+Now try to run the runner.
+
+```
+/usr/bin/python3 /opt/snapraid-btrfs-runner/snapraid-btrfs-runner.py -c /opt/snapraid-btrfs-runner/snapraid-btrfs-runner.conf
+```
+
+It should work.
+
+```
+2022-11-01 00:44:52,597 [OUTPUT] Loading state from /var/snapraid.content...
+2022-11-01 00:44:52,597 [OUTERR] WARNING! UUID is unsupported for disks: 'd1', 'd2'. Not using inodes to detect move operations.
+2022-11-01 00:44:52,597 [OUTPUT] Comparing...
+2022-11-01 00:44:52,597 [OUTPUT]
+2022-11-01 00:44:52,597 [OUTPUT]        0 equal
+2022-11-01 00:44:52,597 [OUTPUT]        0 added
+2022-11-01 00:44:52,597 [OUTPUT]        0 removed
+2022-11-01 00:44:52,597 [OUTPUT]        0 updated
+2022-11-01 00:44:52,597 [OUTPUT]        0 moved
+2022-11-01 00:44:52,597 [OUTPUT]        0 copied
+2022-11-01 00:44:52,597 [OUTPUT]        0 restored
+2022-11-01 00:44:52,597 [OUTPUT] No differences
+2022-11-01 00:44:52,904 [INFO  ] ************************************************************
+2022-11-01 00:44:52,904 [INFO  ] Diff results: 0 added,  0 removed,  0 moved,  0 modified
+2022-11-01 00:44:52,904 [INFO  ] No changes detected, no sync required
+2022-11-01 00:44:52,904 [INFO  ] Running cleanup...
+2022-11-01 00:44:53,240 [INFO  ] ************************************************************
+2022-11-01 00:44:53,240 [INFO  ] All done
+2022-11-01 00:44:53,249 [ERROR ] Failed to send email because smtp host is not set
+2022-11-01 00:44:53,249 [INFO  ] Run finished successfully
+```

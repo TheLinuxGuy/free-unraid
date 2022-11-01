@@ -22,13 +22,16 @@ IMO, unless you want to "slowly grow" your number of hard drives its best to "sp
 
 Therefore `msplus (most shared path, least used space)` is what we would want. You can always change this later.
 
-### Slow-storage mergerfs pool
+### /etc/fstab (TL;DR) config
 
 The `/etc/fstab` for our slow disks running BTRFS would look like as follows:
 
 ```
-# mergefs - merge all slow disks.
-/mnt/disk* /mnt/slow-storage fuse.mergerfs defaults,nonempty,allow_other,use_ino,category.create=msplus,cache.files=off,moveonenospc=true,dropcacheonclose=true,minfreespace=200G,fsname=mergerfs 0 0
+# add fstab slow-storage
+/mnt/disk* /mnt/slow-storage fuse.mergerfs defaults,nonempty,allow_other,use_ino,category.create=eplus,cache.files=off,moveonenospc=true,dropcacheonclose=true,minfreespace=300G,fsname=mergerfs 0 0
+
+# add fstab /cache nvme
+/cache:/mnt/slow-storage /mnt/cached fuse.mergerfs defaults,nonempty,allow_other,use_ino,noforget,inodecalc=path-hash,security_capability=false,cache.files=partial,category.create=lfs,moveonenospc=true,dropcacheonclose=true,minfreespace=4G,fsname=mergerfs 0 0
 ```
 
 Caveats of `msplus` means each single disk needs to have the top-level folder created for it (e.g: "movies" and "tv" folder). Therefore `/mnt/diskX/movies` would allow the path walk-back logic to dump data into that disk. 
@@ -40,3 +43,23 @@ https://github.com/trapexit/mergerfs#tiered-caching
 To attempt to mirror what unraid provides with their share "cache" we are going to setup yet another mergerfs "pool" or mountpoint with just our nvme disks. 
 
 Recall that I chose to use ZFS and RAID1 mirror for this purpose to provide assurances that my data would not be lost before it gets moved onto parity-protected-snapraid-slow-storage-disks.
+
+### NFS tweaks that were added
+
+```
+noforget,inodecalc=path-hash,security_capability=false,cache.files=partial,category.create=lfs
+```
+
+## Installing mergerfs on ubuntu 21.04 steps
+
+```
+wget https://github.com/trapexit/mergerfs/releases/download/2.33.5/mergerfs_2.33.5.ubuntu-focal_amd64.deb
+dpkg -i mergerfs_2.33.5.ubuntu-focal_amd64.deb
+```
+
+## Other notes
+
+1. Update /etc/snapraid.conf with disk maps.
+1. Ensure `snapper` configs for each disk exist. (`snapper -c mergerfsdisk1 create-config -t mergerfsdisk /mnt/disk1`)
+1. Install snapraid-btrfs and validate with `snapraid-btrfs ls` command.
+1. Install snapraid-btrfs-runner (`git clone https://github.com/fmoledina/snapraid-btrfs-runner.git /opt/snapraid-btrfs-runner`)
