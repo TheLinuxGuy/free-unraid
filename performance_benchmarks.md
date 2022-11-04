@@ -189,6 +189,167 @@ Run status group 0 (all jobs):
   WRITE: bw=374MiB/s (392MB/s), 374MiB/s-374MiB/s (392MB/s-392MB/s), io=21.9GiB (23.6GB), run=60084-60084msec
 ```
 
+### Let's remove ZFS from the equation (mergerfs)
+
+```
+zpool destroy cache
+mkfs.btrfs -f -L cachebtrfs /dev/nvme0n1
+btrfs-progs v5.4.1
+See http://btrfs.wiki.kernel.org for more information.
+
+Detected a SSD, turning off metadata duplication.  Mkfs with -m dup if you want to force metadata duplication.
+Label:              cachebtrfs
+UUID:               53afb172-2ac8-43be-98e0-d749217bf129
+Node size:          16384
+Sector size:        4096
+Filesystem size:    238.47GiB
+Block group profiles:
+  Data:             single            8.00MiB
+  Metadata:         single            8.00MiB
+  System:           single            4.00MiB
+SSD detected:       yes
+Incompat features:  extref, skinny-metadata
+Checksum:           crc32c
+Number of devices:  1
+Devices:
+   ID        SIZE  PATH
+    1   238.47GiB  /dev/nvme0n1
+
+root@nas:/home/gfm# mkdir /cache
+root@nas:/home/gfm# mount /dev/nvme0n1 /cache
+root@nas:/home/gfm# mount
+sysfs on /sys type sysfs (rw,nosuid,nodev,noexec,relatime)
+proc on /proc type proc (rw,nosuid,nodev,noexec,relatime)
+udev on /dev type devtmpfs (rw,nosuid,noexec,relatime,size=1948816k,nr_inodes=487204,mode=755)
+devpts on /dev/pts type devpts (rw,nosuid,noexec,relatime,gid=5,mode=620,ptmxmode=000)
+tmpfs on /run type tmpfs (rw,nosuid,nodev,noexec,relatime,size=398812k,mode=755)
+/dev/mapper/ubuntu--vg-ubuntu--lv on / type ext4 (rw,relatime)
+securityfs on /sys/kernel/security type securityfs (rw,nosuid,nodev,noexec,relatime)
+tmpfs on /dev/shm type tmpfs (rw,nosuid,nodev)
+tmpfs on /run/lock type tmpfs (rw,nosuid,nodev,noexec,relatime,size=5120k)
+tmpfs on /sys/fs/cgroup type tmpfs (ro,nosuid,nodev,noexec,mode=755)
+cgroup2 on /sys/fs/cgroup/unified type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate)
+cgroup on /sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,xattr,name=systemd)
+pstore on /sys/fs/pstore type pstore (rw,nosuid,nodev,noexec,relatime)
+efivarfs on /sys/firmware/efi/efivars type efivarfs (rw,nosuid,nodev,noexec,relatime)
+none on /sys/fs/bpf type bpf (rw,nosuid,nodev,noexec,relatime,mode=700)
+cgroup on /sys/fs/cgroup/blkio type cgroup (rw,nosuid,nodev,noexec,relatime,blkio)
+cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup (rw,nosuid,nodev,noexec,relatime,cpu,cpuacct)
+cgroup on /sys/fs/cgroup/freezer type cgroup (rw,nosuid,nodev,noexec,relatime,freezer)
+cgroup on /sys/fs/cgroup/devices type cgroup (rw,nosuid,nodev,noexec,relatime,devices)
+cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,nosuid,nodev,noexec,relatime,cpuset)
+cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,nosuid,nodev,noexec,relatime,perf_event)
+cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,nosuid,nodev,noexec,relatime,hugetlb)
+cgroup on /sys/fs/cgroup/pids type cgroup (rw,nosuid,nodev,noexec,relatime,pids)
+cgroup on /sys/fs/cgroup/net_cls,net_prio type cgroup (rw,nosuid,nodev,noexec,relatime,net_cls,net_prio)
+cgroup on /sys/fs/cgroup/rdma type cgroup (rw,nosuid,nodev,noexec,relatime,rdma)
+cgroup on /sys/fs/cgroup/memory type cgroup (rw,nosuid,nodev,noexec,relatime,memory)
+systemd-1 on /proc/sys/fs/binfmt_misc type autofs (rw,relatime,fd=28,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=3020)
+hugetlbfs on /dev/hugepages type hugetlbfs (rw,relatime,pagesize=2M)
+mqueue on /dev/mqueue type mqueue (rw,nosuid,nodev,noexec,relatime)
+debugfs on /sys/kernel/debug type debugfs (rw,nosuid,nodev,noexec,relatime)
+tracefs on /sys/kernel/tracing type tracefs (rw,nosuid,nodev,noexec,relatime)
+sunrpc on /run/rpc_pipefs type rpc_pipefs (rw,relatime)
+nfsd on /proc/fs/nfsd type nfsd (rw,relatime)
+fusectl on /sys/fs/fuse/connections type fusectl (rw,nosuid,nodev,noexec,relatime)
+configfs on /sys/kernel/config type configfs (rw,nosuid,nodev,noexec,relatime)
+binfmt_misc on /proc/sys/fs/binfmt_misc type binfmt_misc (rw,nosuid,nodev,noexec,relatime)
+mergerfs on /mnt/slow-storage type fuse.mergerfs (rw,relatime,user_id=0,group_id=0,default_permissions,allow_other)
+/dev/sda2 on /boot type ext4 (rw,relatime)
+/dev/sda1 on /boot/efi type vfat (rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=iso8859-1,shortname=mixed,errors=remount-ro)
+/dev/sdc on /mnt/disk2 type btrfs (rw,relatime,space_cache,subvolid=257,subvol=/data)
+/dev/sdc on /mnt/snapraid-content/disk2 type btrfs (rw,relatime,space_cache,subvolid=258,subvol=/content)
+/dev/sde on /mnt/snapraid-content/disk1 type btrfs (rw,relatime,space_cache,subvolid=258,subvol=/content)
+/dev/sde on /mnt/disk1 type btrfs (rw,relatime,space_cache,subvolid=256,subvol=/data)
+/var/lib/snapd/snaps/core20_1634.snap on /snap/core20/1634 type squashfs (ro,nodev,relatime,x-gdu.hide)
+/var/lib/snapd/snaps/snapd_16292.snap on /snap/snapd/16292 type squashfs (ro,nodev,relatime,x-gdu.hide)
+/var/lib/snapd/snaps/snapd_17336.snap on /snap/snapd/17336 type squashfs (ro,nodev,relatime,x-gdu.hide)
+/var/lib/snapd/snaps/core20_1623.snap on /snap/core20/1623 type squashfs (ro,nodev,relatime,x-gdu.hide)
+/var/lib/snapd/snaps/lxd_22753.snap on /snap/lxd/22753 type squashfs (ro,nodev,relatime,x-gdu.hide)
+/dev/sdd1 on /mnt/parity1 type xfs (rw,relatime,attr2,inode64,logbufs=8,logbsize=32k,noquota)
+tmpfs on /run/snapd/ns type tmpfs (rw,nosuid,nodev,noexec,relatime,size=398812k,mode=755)
+nsfs on /run/snapd/ns/lxd.mnt type nsfs (rw)
+tracefs on /sys/kernel/debug/tracing type tracefs (rw,nosuid,nodev,noexec,relatime)
+tmpfs on /run/user/1000 type tmpfs (rw,nosuid,nodev,relatime,size=398808k,mode=700,uid=1000,gid=1000)
+autotier on /mnt/autotier type fuse.autotier (rw,nosuid,nodev,relatime,user_id=0,group_id=0,default_permissions,allow_other)
+/dev/nvme0n1 on /cache type btrfs (rw,relatime,ssd,space_cache,subvolid=5,subvol=/)
+
+```
+
+#### Btrfs raw-speed disk results.
+
+As expected, ~900 MB/s writes. Matches observations in unraid trial for the same hardware.
+
+```
+Starting 8 processes
+fiotest: Laying out IO file (1 file / 16384MiB)
+Jobs: 4 (f=0): [_(2),f(3),_(1),f(1),_(1)][100.0%][w=894MiB/s][w=893 IOPS][eta 00m:00s]
+fiotest: (groupid=0, jobs=8): err= 0: pid=53864: Fri Nov  4 00:44:23 2022
+  write: IOPS=901, BW=902MiB/s (946MB/s)(52.9GiB/60059msec); 0 zone resets
+    slat (usec): min=434, max=202119, avg=1705.52, stdev=5436.46
+    clat (msec): min=3, max=263, avg=69.19, stdev=34.71
+     lat (msec): min=3, max=277, avg=70.90, stdev=35.30
+    clat percentiles (msec):
+     |  1.00th=[   14],  5.00th=[   20], 10.00th=[   24], 20.00th=[   32],
+     | 30.00th=[   50], 40.00th=[   61], 50.00th=[   70], 60.00th=[   78],
+     | 70.00th=[   87], 80.00th=[  102], 90.00th=[  111], 95.00th=[  126],
+     | 99.00th=[  161], 99.50th=[  174], 99.90th=[  207], 99.95th=[  222],
+     | 99.99th=[  243]
+   bw (  KiB/s): min=442249, max=2527361, per=99.97%, avg=923157.66, stdev=47906.96, samples=960
+   iops        : min=  431, max= 2467, avg=901.15, stdev=46.79, samples=960
+  lat (msec)   : 4=0.01%, 10=0.04%, 20=6.16%, 50=23.95%, 100=49.08%
+  lat (msec)   : 250=20.76%, 500=0.01%
+  cpu          : usr=0.30%, sys=5.05%, ctx=59733, majf=0, minf=88
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=99.9%, 16=0.0%, 32=0.0%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.1%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     issued rwts: total=0,54162,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=8
+
+Run status group 0 (all jobs):
+  WRITE: bw=902MiB/s (946MB/s), 902MiB/s-902MiB/s (946MB/s-946MB/s), io=52.9GiB (56.8GB), run=60059-60059msec
+
+```
+
+#### /cache BTRFS mergerfs test.
+
+TL;DR **Surprising results, w/o ZFS. Performance penalty is ~15%!**
+
+```
+root@nas:/mnt# mount /mnt/cached/
+root@nas:/mnt# df -h /mnt/cached/
+Filesystem      Size  Used Avail Use% Mounted on
+mergerfs        239G   17G  222G   7% /mnt/cached
+Starting 8 processes
+fiotest: Laying out IO file (1 file / 16384MiB)
+Jobs: 3 (f=3): [_(3),f(1),_(2),f(2)][100.0%][eta 00m:00s]
+fiotest: (groupid=0, jobs=8): err= 0: pid=55377: Fri Nov  4 00:48:28 2022
+  write: IOPS=770, BW=771MiB/s (808MB/s)(45.2GiB/60022msec); 0 zone resets
+    slat (usec): min=16, max=80166, avg=10360.79, stdev=5295.21
+    clat (msec): min=2, max=203, avg=72.59, stdev=13.58
+     lat (msec): min=2, max=219, avg=82.95, stdev=14.65
+    clat percentiles (msec):
+     |  1.00th=[   40],  5.00th=[   61], 10.00th=[   63], 20.00th=[   69],
+     | 30.00th=[   70], 40.00th=[   70], 50.00th=[   71], 60.00th=[   72],
+     | 70.00th=[   73], 80.00th=[   74], 90.00th=[   83], 95.00th=[   96],
+     | 99.00th=[  132], 99.50th=[  144], 99.90th=[  165], 99.95th=[  171],
+     | 99.99th=[  190]
+   bw (  KiB/s): min=571253, max=913408, per=99.87%, avg=788216.07, stdev=7550.71, samples=960
+   iops        : min=  557, max=  892, avg=769.35, stdev= 7.39, samples=960
+  lat (msec)   : 4=0.01%, 10=0.09%, 20=0.11%, 50=1.72%, 100=93.88%
+  lat (msec)   : 250=4.20%
+  cpu          : usr=0.28%, sys=1.29%, ctx=89094, majf=0, minf=89
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=99.9%, 16=0.0%, 32=0.0%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.1%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     issued rwts: total=0,46262,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=8
+
+Run status group 0 (all jobs):
+  WRITE: bw=771MiB/s (808MB/s), 771MiB/s-771MiB/s (808MB/s-808MB/s), io=45.2GiB (48.5GB), run=60022-60022msec
+
+```
+
 # Autotier experiment
 
 TL;DR **Worst performance out of all (50% mergerfs performance). Unmaintained project by 45Drives.**
@@ -258,3 +419,4 @@ Run status group 0 (all jobs):
   WRITE: bw=184MiB/s (193MB/s), 184MiB/s-184MiB/s (193MB/s-193MB/s), io=10.8GiB (11.6GB), run=60112-60112msec
 
 ```
+
