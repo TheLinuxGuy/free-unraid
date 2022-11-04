@@ -1,4 +1,10 @@
 
+## Autotier experiment
+
+```
+libsnappy-dev
+```
+
 [3:0:0:0]    disk    ATA      WDC WD180EDGZ-11 0A85  /dev/sdc << parity /mnt/parity1
 [3:0:1:0]    disk    ATA      WDC WD80EFZX-68U 0A83  /dev/sdd << /mnt/btrfs-roots/mergerfsdisk1
 [3:0:2:0]    disk    ATA      WDC WD180EDGZ-11 0A85  /dev/sde << /mnt/btrfs-roots/mergerfsdisk2
