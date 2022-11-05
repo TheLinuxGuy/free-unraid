@@ -35,7 +35,7 @@ The following open-source projects seem to be able to help reach my goals. It re
 ## OS install and base packages install
 
 ```
-apt-get install zfsutils-linux cockpit-pcp
+apt-get install zfsutils-linux cockpit-pcp btrfs-progs libbtrfsutil1 btrfs-compsize
 ```
 
 ## ZFS cache pool setup

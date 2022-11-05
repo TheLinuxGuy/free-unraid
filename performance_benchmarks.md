@@ -1,5 +1,7 @@
 # Performance
 
+**Note: after upgrading from ZFS 0.8.4 to ZFS 2.1.4 (+kernel 5.15.0-52-generic) the noted ZFS performance issues have gone away. There appears to be almost no performance penalty of using ZFS+mergerfs.**
+
 These are my notes about performance of this setup (and some experiments with `autotier` mergerfs competitor).
 
 Performance is measured by this `fio` command. It's intended to test **sequential writes** with 1MB block size. Imitates write backup activity or large file copies (HD tv or movies).
@@ -61,6 +63,8 @@ errors: No known data errors
 
 ### /cache ZFS Raw-disk performance (this is my "fast cache" for mergerfs)
 
+**Update: 11/05/22 - After upgrade from ZFS 0.8.4 to ZFS 2.1.4 the below performance issues don't exist.**
+
 **NOTE: ZFS filesystem uses memory catching L2ARC and other things that may 'inflate' results**
 
 I have done tests on this same nvm0n1 disk and max writes are around 900MB/s (if you google for Samsung 950 256GB drives like mine you will find same benchmark results).
@@ -93,6 +97,47 @@ fiotest: (groupid=0, jobs=8): err= 0: pid=17709: Thu Nov  3 23:58:41 2022
 Run status group 0 (all jobs):
   WRITE: bw=1240MiB/s (1300MB/s), 1240MiB/s-1240MiB/s (1300MB/s-1300MB/s), io=72.7GiB (78.0GB), run=60017-60017msec
 ```
+
+### /mnt/cached ZFS 2.1.4 write to mergerfs-ZFS benchmarks (performance fixed!)
+
+```
+# dpkg -l | grep zfs
+ii  libzfs4linux                          2.1.4-0ubuntu0.1                        amd64        OpenZFS filesystem library for Linux - general support
+ii  zfs-zed                               2.1.4-0ubuntu0.1                        amd64        OpenZFS Event Daemon
+ii  zfsutils-linux                        2.1.4-0ubuntu0.1                        amd64        command-line tools to manage OpenZFS filesystems
+# fio --name=fiotest --filename=/mnt/cached/speed --size=16Gb --rw=write --bs=1M --direct=1 --numjobs=8 --ioengine=libaio --iodepth=8 --group_reporting --runtime=60 --startdelay=60
+Starting 8 processes
+fiotest: Laying out IO file (1 file / 16384MiB)
+Jobs: 8 (f=0): [f(8)][100.0%][w=707MiB/s][w=707 IOPS][eta 00m:00s]
+fiotest: (groupid=0, jobs=8): err= 0: pid=93346: Sat Nov  5 01:56:46 2022
+  write: IOPS=944, BW=944MiB/s (990MB/s)(55.3GiB/60039msec); 0 zone resets
+    slat (usec): min=12, max=81965, avg=8457.02, stdev=8863.16
+    clat (usec): min=177, max=349728, avg=59322.78, stdev=55613.28
+     lat (usec): min=198, max=392259, avg=67780.92, stdev=63148.08
+    clat percentiles (msec):
+     |  1.00th=[    3],  5.00th=[    9], 10.00th=[   14], 20.00th=[   18],
+     | 30.00th=[   23], 40.00th=[   31], 50.00th=[   40], 60.00th=[   51],
+     | 70.00th=[   65], 80.00th=[   97], 90.00th=[  142], 95.00th=[  184],
+     | 99.00th=[  245], 99.50th=[  266], 99.90th=[  305], 99.95th=[  326],
+     | 99.99th=[  338]
+   bw (  KiB/s): min=198656, max=5643635, per=99.82%, avg=964905.73, stdev=88839.34, samples=952
+   iops        : min=  194, max= 5511, avg=942.20, stdev=86.75, samples=952
+  lat (usec)   : 250=0.01%, 500=0.15%, 750=0.20%, 1000=0.18%
+  lat (msec)   : 2=0.39%, 4=0.67%, 10=5.83%, 20=18.35%, 50=34.41%
+  lat (msec)   : 100=20.43%, 250=18.56%, 500=0.81%
+  cpu          : usr=0.97%, sys=0.64%, ctx=106614, majf=0, minf=107
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=99.9%, 16=0.0%, 32=0.0%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.1%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     issued rwts: total=0,56678,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=8
+
+Run status group 0 (all jobs):
+  WRITE: bw=944MiB/s (990MB/s), 944MiB/s-944MiB/s (990MB/s-990MB/s), io=55.3GiB (59.4GB), run=60039-60039msec
+
+```
+
+Performance 990MB/s on RAID1 ZFS of dual nvme. Goal achieved.
 
 ### /mnt/slow-storage - mergerfs aggregate of spinning disks 18TB, 8TB
 
@@ -217,64 +262,199 @@ Devices:
 
 root@nas:/home/gfm# mkdir /cache
 root@nas:/home/gfm# mount /dev/nvme0n1 /cache
-root@nas:/home/gfm# mount
-sysfs on /sys type sysfs (rw,nosuid,nodev,noexec,relatime)
-proc on /proc type proc (rw,nosuid,nodev,noexec,relatime)
-udev on /dev type devtmpfs (rw,nosuid,noexec,relatime,size=1948816k,nr_inodes=487204,mode=755)
-devpts on /dev/pts type devpts (rw,nosuid,noexec,relatime,gid=5,mode=620,ptmxmode=000)
-tmpfs on /run type tmpfs (rw,nosuid,nodev,noexec,relatime,size=398812k,mode=755)
-/dev/mapper/ubuntu--vg-ubuntu--lv on / type ext4 (rw,relatime)
-securityfs on /sys/kernel/security type securityfs (rw,nosuid,nodev,noexec,relatime)
-tmpfs on /dev/shm type tmpfs (rw,nosuid,nodev)
-tmpfs on /run/lock type tmpfs (rw,nosuid,nodev,noexec,relatime,size=5120k)
-tmpfs on /sys/fs/cgroup type tmpfs (ro,nosuid,nodev,noexec,mode=755)
-cgroup2 on /sys/fs/cgroup/unified type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate)
-cgroup on /sys/fs/cgroup/systemd type cgroup (rw,nosuid,nodev,noexec,relatime,xattr,name=systemd)
-pstore on /sys/fs/pstore type pstore (rw,nosuid,nodev,noexec,relatime)
-efivarfs on /sys/firmware/efi/efivars type efivarfs (rw,nosuid,nodev,noexec,relatime)
-none on /sys/fs/bpf type bpf (rw,nosuid,nodev,noexec,relatime,mode=700)
-cgroup on /sys/fs/cgroup/blkio type cgroup (rw,nosuid,nodev,noexec,relatime,blkio)
-cgroup on /sys/fs/cgroup/cpu,cpuacct type cgroup (rw,nosuid,nodev,noexec,relatime,cpu,cpuacct)
-cgroup on /sys/fs/cgroup/freezer type cgroup (rw,nosuid,nodev,noexec,relatime,freezer)
-cgroup on /sys/fs/cgroup/devices type cgroup (rw,nosuid,nodev,noexec,relatime,devices)
-cgroup on /sys/fs/cgroup/cpuset type cgroup (rw,nosuid,nodev,noexec,relatime,cpuset)
-cgroup on /sys/fs/cgroup/perf_event type cgroup (rw,nosuid,nodev,noexec,relatime,perf_event)
-cgroup on /sys/fs/cgroup/hugetlb type cgroup (rw,nosuid,nodev,noexec,relatime,hugetlb)
-cgroup on /sys/fs/cgroup/pids type cgroup (rw,nosuid,nodev,noexec,relatime,pids)
-cgroup on /sys/fs/cgroup/net_cls,net_prio type cgroup (rw,nosuid,nodev,noexec,relatime,net_cls,net_prio)
-cgroup on /sys/fs/cgroup/rdma type cgroup (rw,nosuid,nodev,noexec,relatime,rdma)
-cgroup on /sys/fs/cgroup/memory type cgroup (rw,nosuid,nodev,noexec,relatime,memory)
-systemd-1 on /proc/sys/fs/binfmt_misc type autofs (rw,relatime,fd=28,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=3020)
-hugetlbfs on /dev/hugepages type hugetlbfs (rw,relatime,pagesize=2M)
-mqueue on /dev/mqueue type mqueue (rw,nosuid,nodev,noexec,relatime)
-debugfs on /sys/kernel/debug type debugfs (rw,nosuid,nodev,noexec,relatime)
-tracefs on /sys/kernel/tracing type tracefs (rw,nosuid,nodev,noexec,relatime)
-sunrpc on /run/rpc_pipefs type rpc_pipefs (rw,relatime)
-nfsd on /proc/fs/nfsd type nfsd (rw,relatime)
-fusectl on /sys/fs/fuse/connections type fusectl (rw,nosuid,nodev,noexec,relatime)
-configfs on /sys/kernel/config type configfs (rw,nosuid,nodev,noexec,relatime)
-binfmt_misc on /proc/sys/fs/binfmt_misc type binfmt_misc (rw,nosuid,nodev,noexec,relatime)
-mergerfs on /mnt/slow-storage type fuse.mergerfs (rw,relatime,user_id=0,group_id=0,default_permissions,allow_other)
-/dev/sda2 on /boot type ext4 (rw,relatime)
-/dev/sda1 on /boot/efi type vfat (rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=iso8859-1,shortname=mixed,errors=remount-ro)
-/dev/sdc on /mnt/disk2 type btrfs (rw,relatime,space_cache,subvolid=257,subvol=/data)
-/dev/sdc on /mnt/snapraid-content/disk2 type btrfs (rw,relatime,space_cache,subvolid=258,subvol=/content)
-/dev/sde on /mnt/snapraid-content/disk1 type btrfs (rw,relatime,space_cache,subvolid=258,subvol=/content)
-/dev/sde on /mnt/disk1 type btrfs (rw,relatime,space_cache,subvolid=256,subvol=/data)
-/var/lib/snapd/snaps/core20_1634.snap on /snap/core20/1634 type squashfs (ro,nodev,relatime,x-gdu.hide)
-/var/lib/snapd/snaps/snapd_16292.snap on /snap/snapd/16292 type squashfs (ro,nodev,relatime,x-gdu.hide)
-/var/lib/snapd/snaps/snapd_17336.snap on /snap/snapd/17336 type squashfs (ro,nodev,relatime,x-gdu.hide)
-/var/lib/snapd/snaps/core20_1623.snap on /snap/core20/1623 type squashfs (ro,nodev,relatime,x-gdu.hide)
-/var/lib/snapd/snaps/lxd_22753.snap on /snap/lxd/22753 type squashfs (ro,nodev,relatime,x-gdu.hide)
-/dev/sdd1 on /mnt/parity1 type xfs (rw,relatime,attr2,inode64,logbufs=8,logbsize=32k,noquota)
-tmpfs on /run/snapd/ns type tmpfs (rw,nosuid,nodev,noexec,relatime,size=398812k,mode=755)
-nsfs on /run/snapd/ns/lxd.mnt type nsfs (rw)
-tracefs on /sys/kernel/debug/tracing type tracefs (rw,nosuid,nodev,noexec,relatime)
-tmpfs on /run/user/1000 type tmpfs (rw,nosuid,nodev,relatime,size=398808k,mode=700,uid=1000,gid=1000)
-autotier on /mnt/autotier type fuse.autotier (rw,nosuid,nodev,relatime,user_id=0,group_id=0,default_permissions,allow_other)
 /dev/nvme0n1 on /cache type btrfs (rw,relatime,ssd,space_cache,subvolid=5,subvol=/)
 
 ```
+
+
+#### Does btrfs raid1 work with mergerfs?
+
+Let's test.
+
+```
+root@nas:/home/gfm# mkfs.btrfs -f -L cached-mirror -m raid1 -d raid1 /dev/nvme0n1 /dev/sdb                               btrfs-progs v5.4.1
+See http://btrfs.wiki.kernel.org for more information.
+
+Label:              cached-mirror
+UUID:               0c4241e9-e4ea-41b6-9dab-a3cc4b936edb
+Node size:          16384
+Sector size:        4096
+Filesystem size:    476.96GiB
+Block group profiles:
+  Data:             RAID1             1.00GiB
+  Metadata:         RAID1             1.00GiB
+  System:           RAID1             8.00MiB
+SSD detected:       yes
+Incompat features:  extref, skinny-metadata
+Checksum:           crc32c
+Number of devices:  2
+Devices:
+   ID        SIZE  PATH
+    1   238.47GiB  /dev/nvme0n1
+    2   238.49GiB  /dev/sdb
+
+root@nas:/home/gfm# mount /dev/nvme0n1 /cache/
+fio-3.16
+Starting 8 processes
+fiotest: Laying out IO file (1 file / 16384MiB)
+Jobs: 7 (f=7): [W(1),_(1),W(6)][75.7%][eta 00m:44s]
+fiotest: (groupid=0, jobs=8): err= 0: pid=14619: Fri Nov  4 01:48:09 2022
+  write: IOPS=438, BW=438MiB/s (459MB/s)(32.5GiB/76061msec); 0 zone resets
+    slat (usec): min=28, max=44590k, avg=7783.12, stdev=487469.23
+    clat (usec): min=329, max=44735k, avg=134311.57, stdev=1290330.14
+     lat (usec): min=532, max=44735k, avg=142095.86, stdev=1378714.43
+    clat percentiles (usec):
+     |  1.00th=[     644],  5.00th=[   13304], 10.00th=[   17957],
+     | 20.00th=[   29492], 30.00th=[   43254], 40.00th=[   53740],
+     | 50.00th=[   67634], 60.00th=[   83362], 70.00th=[  101188],
+     | 80.00th=[  122160], 90.00th=[  181404], 95.00th=[  231736],
+     | 99.00th=[  383779], 99.50th=[  463471], 99.90th=[17112761],
+     | 99.95th=[17112761], 99.99th=[17112761]
+   bw (  KiB/s): min=163819, max=2094826, per=100.00%, avg=739932.10, stdev=58373.76, samples=727
+   iops        : min=  159, max= 2045, avg=721.74, stdev=56.99, samples=727
+  lat (usec)   : 500=0.05%, 750=1.04%, 1000=0.50%
+  lat (msec)   : 2=0.62%, 4=0.34%, 10=0.54%, 20=9.06%, 50=24.23%
+  lat (msec)   : 100=33.28%, 250=26.57%, 500=3.46%, 750=0.17%, 1000=0.01%
+  lat (msec)   : >=2000=0.15%
+  cpu          : usr=0.43%, sys=0.45%, ctx=46384, majf=0, minf=88
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=99.8%, 16=0.0%, 32=0.0%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.1%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     issued rwts: total=0,33328,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=8
+
+Run status group 0 (all jobs):
+  WRITE: bw=438MiB/s (459MB/s), 438MiB/s-438MiB/s (459MB/s-459MB/s), io=32.5GiB (34.9GB), run=76061-76061msec
+```
+
+BTRFS raid1 performance is really... poor wow. This isn't even with mergerfs enabled.
+
+Let's see about it. **results are 15% performance penalty** in line with past mergerfs tests on btrfs.  Outcome: RAID1 on btrfs is probably not a good idea; lost 50% of raw performance before even mergerfs comes into play.
+
+```
+Run status group 0 (all jobs):
+  WRITE: bw=296MiB/s (311MB/s), 296MiB/s-296MiB/s (311MB/s-311MB/s), io=17.4GiB (18.7GB), run=60172-60172msec
+```
+
+#### mdadm ext4 raid1 test
+
+```
+root@nas:/home/gfm# sgdisk -Z /dev/nvme0n1
+Creating new GPT entries in memory.
+GPT data structures destroyed! You may now partition the disk using fdisk or
+other utilities.
+root@nas:/home/gfm# sgdisk -Z /dev/sdb
+Creating new GPT entries in memory.
+GPT data structures destroyed! You may now partition the disk using fdisk or
+other utilities.
+root@nas:/home/gfm# mdadm --create /dev/md/cache /dev/nvme0n1 /dev/sdb --level=1 --raid-devices=2
+mdadm: Note: this array has metadata at the start and
+    may not be suitable as a boot device.  If you plan to
+    store '/boot' on this device please ensure that
+    your boot-loader understands md/v1.x metadata, or use
+    --metadata=0.90
+Continue creating array? y
+mdadm: Defaulting to version 1.2 metadata
+mdadm: array /dev/md/cache started.
+root@nas:/home/gfm# mdadm --detail /dev/md/cache
+/dev/md/cache:
+           Version : 1.2
+     Creation Time : Fri Nov  4 02:02:11 2022
+        Raid Level : raid1
+        Array Size : 249926976 (238.35 GiB 255.93 GB)
+     Used Dev Size : 249926976 (238.35 GiB 255.93 GB)
+      Raid Devices : 2
+     Total Devices : 2
+       Persistence : Superblock is persistent
+
+     Intent Bitmap : Internal
+
+       Update Time : Fri Nov  4 02:02:38 2022
+             State : clean, resyncing
+    Active Devices : 2
+   Working Devices : 2
+    Failed Devices : 0
+     Spare Devices : 0
+
+Consistency Policy : bitmap
+
+     Resync Status : 2% complete
+
+              Name : nas:cache  (local to host nas)
+              UUID : dda209ab:ace57985:25895a5b:f3d95068
+            Events : 4
+
+    Number   Major   Minor   RaidDevice State
+       0     259        0        0      active sync   /dev/nvme0n1
+       1       8       16        1      active sync   /dev/sdb
+root@nas:/home/gfm#  mkfs.ext4  /dev/md/cache
+mke2fs 1.45.5 (07-Jan-2020)
+Discarding device blocks: done
+Creating filesystem with 62481744 4k blocks and 15622144 inodes
+Filesystem UUID: 9bda5776-f50e-40fa-a826-8b2424de3f07
+Superblock backups stored on blocks:
+        32768, 98304, 163840, 229376, 294912, 819200, 884736, 1605632, 2654208,
+        4096000, 7962624, 11239424, 20480000, 23887872
+
+Allocating group tables: done
+Writing inode tables: done
+Creating journal (262144 blocks): done
+Writing superblocks and filesystem accounting information: done
+
+root@nas:/home/gfm# mount /dev/md/cache /cache/
+```
+
+After waiting for resync to be complete. IO test. Maybe ZFS is just better at RAID1 w/o performance impacts.
+
+```
+Run status group 0 (all jobs):
+  WRITE: bw=478MiB/s (502MB/s), 478MiB/s-478MiB/s (502MB/s-502MB/s), io=28.1GiB (30.1GB), run=60069-60069msec
+
+Disk stats (read/write):
+    md127: ios=0/228818, merge=0/0, ticks=0/0, in_queue=0, util=0.00%, aggrios=0/230087, aggrmerge=0/27, aggrticks=0/6898163, aggrin_queue=6647102, aggrutil=94.28%
+  nvme0n1: ios=0/230087, merge=0/27, ticks=0/13717574, in_queue=13258980, util=54.05%
+  sdb: ios=0/230087, merge=0/27, ticks=0/78753, in_queue=35224, util=94.28%
+
+```
+
+https://raid.wiki.kernel.org/index.php/Write-intent_bitmap
+https://louwrentius.com/the-impact-of-the-mdadm-bitmap-on-raid-performance.html 
+
+Write intent bitman may be screwing write performance. Let's disable
+
+```
+mdadm /dev/md127 --grow --bitmap=none
+mdadm --detail /dev/md/cache
+# mount
+/dev/md127 on /cache type btrfs (rw,relatime,ssd,space_cache,subvolid=5,subvol=/)
+# fio results
+Run status group 0 (all jobs):
+  WRITE: bw=540MiB/s (567MB/s), 540MiB/s-540MiB/s (567MB/s-567MB/s), io=31.7GiB (34.0GB), run=60032-60032msec
+
+```
+
+Interestingly, performance starts at peak speeds. Then CPU utilization jumps to 100% dropping performance. 
+
+```
+WRITE: bw=568MiB/s (596MB/s), 568MiB/s-568MiB/s (596MB/s-596MB/s), io=33.3GiB (35.8GB), run=60034-60034msec
+```
+
+Try something else but didn't help pefromance. 
+
+```
+mdadm --grow --bitmap=internal --bitmap-chunk=131072 /dev/md127
+Run status group 0 (all jobs):
+  WRITE: bw=329MiB/s (345MB/s), 329MiB/s-329MiB/s (345MB/s-345MB/s), io=19.4GiB (20.8GB), run=60263-60263msec
+
+```
+
+Kill mdadm array
+
+```
+mdadm -S /dev/md127
+mdadm --zero-superblock /dev/sdb /dev/nvme0n1
+```
+
 
 #### Btrfs raw-speed disk results.
 
@@ -388,7 +568,7 @@ Quota = 100 %
 
 ```
 
-Results, poor as expected.
+Results, poor as expected (below results using ZFS)
 
 ```
 Starting 8 processes
@@ -420,3 +600,95 @@ Run status group 0 (all jobs):
 
 ```
 
+#### Verify if ZFS is the reason for poor performance on autotier
+
+Let's use btrfs here for this test. Same hardware, this time I made btrfs a RAID1. Re-mounted, same options. **autotier did not work with btrfs filesystem**.
+
+```
+mkfs.btrfs -f -L cachebtrfs -m raid1 -d raid1 /dev/sdb /dev/nvme0n1
+```
+
+debug btrfs
+
+```
+dmesg | grep BTRFS | egrep 'error|warning|failed'
+```
+
+```
+root@nas:/mnt# btrfs fi df /cache/
+Data, RAID1: total=33.00GiB, used=31.78GiB
+System, RAID1: total=8.00MiB, used=16.00KiB
+Metadata, RAID1: total=1.00GiB, used=17.23MiB
+GlobalReserve, single: total=17.12MiB, used=0.00B
+```
+
+**Autotier on BTRFS did not work. Process was getting hung**. Let's use `ext4` filesystem instead.
+
+```
+root@nas:/home/gfm# umount /cache/
+umount: /cache/: target is busy.
+root@nas:/home/gfm# ps aux | grep autotier
+root        9511  6.0  0.2 832460 11180 ?        Ssl  01:33   0:13 autotierfs /mnt/autotier -o allow_other,default_permissions
+root       10949  0.0  0.0   6432   724 pts/0    S+   01:37   0:00 grep --color=auto autotier
+root@nas:/home/gfm# kill -9 9511
+root@nas:/home/gfm# umount /cache/
+root@nas:/home/gfm# rm /var/lib/autotier/5685251811202329732/
+adhoc.socket   conflicts.log  db/
+root@nas:/home/gfm# rm /var/lib/autotier/5685251811202329732/adhoc.socket
+root@nas:/home/gfm# mkfs -t ext4 /dev/nvme0n1
+mke2fs 1.45.5 (07-Jan-2020)
+/dev/nvme0n1 contains a btrfs file system labelled 'testme'
+Proceed anyway? (y,N) y
+Discarding device blocks: done
+Creating filesystem with 62514774 4k blocks and 15630336 inodes
+Filesystem UUID: ce2eed9e-8e10-4e0c-ab06-d11f17eefe2d
+Superblock backups stored on blocks:
+        32768, 98304, 163840, 229376, 294912, 819200, 884736, 1605632, 2654208,
+        4096000, 7962624, 11239424, 20480000, 23887872
+
+Allocating group tables: done
+Writing inode tables: done
+Creating journal (262144 blocks):
+done
+Writing superblocks and filesystem accounting information: done
+
+```
+
+#### Now EXT4 autotier test results.
+
+```
+fio-3.16
+Starting 8 processes
+fiotest: Laying out IO file (1 file / 16384MiB)
+Jobs: 8 (f=8): [W(8)][100.0%][w=640MiB/s][w=639 IOPS][eta 00m:00s]
+fiotest: (groupid=0, jobs=8): err= 0: pid=12306: Fri Nov  4 01:41:48 2022
+  write: IOPS=657, BW=658MiB/s (689MB/s)(38.5GiB/60030msec); 0 zone resets
+    slat (usec): min=45, max=276076, avg=12158.02, stdev=19153.35
+    clat (usec): min=828, max=562034, avg=85134.29, stdev=60544.23
+     lat (usec): min=1052, max=573771, avg=97292.87, stdev=64876.67
+    clat percentiles (msec):
+     |  1.00th=[   40],  5.00th=[   46], 10.00th=[   51], 20.00th=[   55],
+     | 30.00th=[   58], 40.00th=[   62], 50.00th=[   65], 60.00th=[   68],
+     | 70.00th=[   73], 80.00th=[   87], 90.00th=[  155], 95.00th=[  213],
+     | 99.00th=[  355], 99.50th=[  447], 99.90th=[  535], 99.95th=[  542],
+     | 99.99th=[  558]
+   bw (  KiB/s): min=94154, max=1044480, per=99.88%, avg=672475.66, stdev=22655.00, samples=960
+   iops        : min=   90, max= 1020, avg=656.37, stdev=22.13, samples=960
+  lat (usec)   : 1000=0.01%
+  lat (msec)   : 2=0.01%, 4=0.01%, 10=0.02%, 20=0.06%, 50=9.76%
+  lat (msec)   : 100=70.81%, 250=17.09%, 500=1.93%, 750=0.32%
+  cpu          : usr=0.36%, sys=0.87%, ctx=121217, majf=0, minf=92
+  IO depths    : 1=0.1%, 2=0.1%, 4=0.1%, 8=99.9%, 16=0.0%, 32=0.0%, >=64=0.0%
+     submit    : 0=0.0%, 4=100.0%, 8=0.0%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     complete  : 0=0.0%, 4=100.0%, 8=0.1%, 16=0.0%, 32=0.0%, 64=0.0%, >=64=0.0%
+     issued rwts: total=0,39471,0,0 short=0,0,0,0 dropped=0,0,0,0
+     latency   : target=0, window=0, percentile=100.00%, depth=8
+
+Run status group 0 (all jobs):
+  WRITE: bw=658MiB/s (689MB/s), 658MiB/s-658MiB/s (689MB/s-689MB/s), io=38.5GiB (41.4GB), run=60030-60030msec
+
+```
+
+2/3 of the drive's raw performance. `mergerfs` still much better. The only benefit to `autotier` would be its automatic promoting of files between tiers based on age and usage.
+
+I'm a little uneasy on placing a depedency on `autotier` given that it doesn't seem to be maintained. IMO - `mergerfs + btrfs` is the winner combination.
