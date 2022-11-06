@@ -5,6 +5,15 @@
 # main mergerfs pool (/mnt/slow-storage).  It is typically invoked via cron and this is 
 # inspired unraid-mover script.
 
+# !!! WARNING !!!
+# This script uses rsync --inplace to speed up transactions. Although it does initially 
+# check for open files with `fuser` command before attempting to move a file, there's a small
+# but possible time window where a file being copied may be accessed by a user. This may lead
+# to data corruption of that file being copied, assuming that changes were made before the rsync
+# command was able to finish that in-place copy. See: https://explainshell.com/explain?cmd=rsync+--inplace
+# !!! WARNING !!!
+
+# HOW IT WORKS / WHAT IT DOES
 # After checking if it's valid for this script to run, we check each of the top-level
 # directories (shares) on the cache disk.  Right now this script moves everything out of
 # /cache ZFS pool and into the slower disks. 
