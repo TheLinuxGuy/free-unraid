@@ -22,8 +22,9 @@ If no ZFS dataset-quota is pursued,  https://duc.zevv.nl could be used to index 
 https://linux.die.net/man/1/rsync
 
 === mergerfs owner recommends these options ===
-axqHAXWESR
+`axqHAXWESR`
 
+```
 a = archive mode
 x = don't cross filesystem boundaries
 q = quiet
@@ -34,10 +35,12 @@ W = copy files whole (w/o delta-xfer algorithm)
 E = preserve executability
 S = handle sparse files efficiently
 R = Use relative paths. This means that the full path names specified on the command line are sent to the server rather than just the last parts of the filenames
+```
 
 === unraid === 
-dIWRpEAXogt
+`dIWRpEAXogt`
 
+```
 d = transfer directories without recursing
 I = don't skip files that match size and time
 W = With this option rsync's delta-transfer algorithm is not used and the whole file is sent as-is instead
@@ -49,3 +52,4 @@ X = preserve extended attributes
 o = preserve owner (super-user only)
 g = preserve group
 t = preserve modification times
+```
