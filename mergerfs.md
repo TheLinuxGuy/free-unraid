@@ -28,7 +28,7 @@ The `/etc/fstab` for our slow disks running BTRFS would look like as follows:
 
 ```
 # add fstab slow-storage
-/mnt/disk* /mnt/slow-storage fuse.mergerfs defaults,nonempty,allow_other,use_ino,category.create=eplus,cache.files=off,moveonenospc=true,dropcacheonclose=true,minfreespace=300G,fsname=mergerfs 0 0
+/mnt/disk* /mnt/slow-storage fuse.mergerfs defaults,nonempty,allow_other,use_ino,category.create=lfs,cache.files=off,moveonenospc=true,dropcacheonclose=true,minfreespace=300G,fsname=mergerfs 0 0
 
 # add fstab /cache nvme
 /cache:/mnt/slow-storage /mnt/cached fuse.mergerfs defaults,nonempty,allow_other,use_ino,noforget,inodecalc=path-hash,security_capability=false,cache.files=partial,category.create=lfs,moveonenospc=true,dropcacheonclose=true,minfreespace=4G,fsname=mergerfs 0 0
