@@ -17,3 +17,35 @@ We probably want to purge large files in "movies" cache, rather than moving 'doc
 Possible idea/workaround: use **ZFS datasets with quota** defined to limit how much writes can go into /cache/movies (% of total available disk). This in theory should force mergerfs to fallback writes to `/mnt/slow-storage`. (to be tested)
 
 If no ZFS dataset-quota is pursued,  https://duc.zevv.nl could be used to index total disk space utilization on /cache - then use scripting rules to check when /cache/movies folder exceeds X GB then execute a purge. 
+
+#### rsync notes
+https://linux.die.net/man/1/rsync
+
+=== mergerfs owner recommends these options ===
+axqHAXWESR
+
+a = archive mode
+x = don't cross filesystem boundaries
+q = quiet
+H = preserve hard links
+A = preserve ACLs (implies -p)
+X = preserve extended attributes
+W = copy files whole (w/o delta-xfer algorithm)
+E = preserve executability
+S = handle sparse files efficiently
+R = Use relative paths. This means that the full path names specified on the command line are sent to the server rather than just the last parts of the filenames
+
+=== unraid === 
+dIWRpEAXogt
+
+d = transfer directories without recursing
+I = don't skip files that match size and time
+W = With this option rsync's delta-transfer algorithm is not used and the whole file is sent as-is instead
+R = Use relative paths. This means that the full path names specified on the command line are sent to the server rather than just the last parts of the filenames
+p = preserve permissions
+E = preserve executability
+A = preserve ACLs (implies -p)
+X = preserve extended attributes
+o = preserve owner (super-user only)
+g = preserve group
+t = preserve modification times

@@ -2,7 +2,8 @@
 # github.com/TheLinuxGuy Tiered Storage mover (/cache -> /mnt/slow-storage)
 
 # This is my customized 'mover' script used for moving files from the cache ZFS pool to the
-# main mergerfs pool (/mnt/slow-storage).  It is typically invoked via cron.
+# main mergerfs pool (/mnt/slow-storage).  It is typically invoked via cron and this is 
+# inspired unraid-mover script.
 
 # After checking if it's valid for this script to run, we check each of the top-level
 # directories (shares) on the cache disk.  Right now this script moves everything out of
