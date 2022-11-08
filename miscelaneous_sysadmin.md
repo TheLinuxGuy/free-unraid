@@ -11,3 +11,26 @@ FallbackNTP=0.pool.ntp.org 1.pool.ntp.org 0.debian.pool.ntp.org
 ```
 
 Restart `systemd-timesyncd.service` - done.
+
+### Folder listings timestamp include year (ls)
+
+Add to `.bashrc` file
+```
+export TIME_STYLE=long-iso
+```
+
+## Btrfs
+
+### Change the partition label
+
+If system is mounted (live change)
+```
+btrfs filesystem label <mountpoint> <newlabel>
+```
+
+If unmounted
+```
+btrfs filesystem label <device> <newlabel>
+```
+
+Make necessary updates in `/etc/fstab`

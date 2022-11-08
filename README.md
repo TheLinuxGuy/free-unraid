@@ -35,7 +35,7 @@ The following open-source projects seem to be able to help reach my goals. It re
 ## OS install and base packages install
 
 ```
-apt-get install zfsutils-linux cockpit-pcp btrfs-progs libbtrfsutil1 btrfs-compsize duc
+apt-get install zfsutils-linux cockpit-pcp btrfs-progs libbtrfsutil1 btrfs-compsize duc smartmontools
 ```
 
 ## ZFS cache pool setup
@@ -78,4 +78,10 @@ btrfs filesystem usage /mnt/disk2
 ```
 btrfs scrub start /mnt/disk1
 btrfs scrub status /mnt/disk1
+```
+
+## Checking tiered storage mover process state
+
+```
+ps -auxq $(cat /var/run/mover.pid)
 ```
