@@ -1,5 +1,45 @@
 # Maintenance Tasks
 
+## CPU / BIOS
+
+### Intel Microcode releases
+https://github.com/intel/Intel-Linux-Processor-Microcode-Data-Files/releases
+
+Protip: wait until motherboard manufacturer bundles new microcode in BIOS update image file.
+
+### BIOS updates for AsRock B660M Pro RS
+https://www.asrock.com/mb/Intel/B660m%20Pro%20RS/index.asp#BIOS 
+
+
+## Services
+
+### NFS
+
+Status
+```
+systemctl status nfs-kernel-server
+```
+
+Restart
+```
+systemctl restart nfs-kernel-server
+```
+
+Check NFS exports on server .54
+```
+showmount -e 192.168.1.54
+```
+
+Mounting on client
+```
+mount -t nfs 192.168.1.54:/mnt/cached /mnt/derp/ -vvv
+```
+
+Unmount force
+```
+umount -f -l /mnt/derp
+```
+
 ## Storage
 
 Monitor disk activity with the following command.
@@ -11,6 +51,20 @@ dstat -cd --disk-util --disk-tps
 ```
 systemctl status hd-idle
 grep 'hd-idle' /var/log/syslog
+```
+### Btrfs scrubs (status, resume)
+
+```
+root@nas:/cache/music# btrfs scrub status /mnt/disk2
+UUID:             8ff09467-056a-48ff-bb6e-7d72b67ca994
+Scrub started:    Mon Oct 31 18:17:17 2022
+Status:           interrupted
+Duration:         0:29:47
+Total to scrub:   12.19TiB
+Rate:             100.96MiB/s
+Error summary:    no errors found
+root@nas:/cache/music# btrfs scrub resume /mnt/disk2
+scrub resumed on /mnt/disk2, fsid 8ff09467-056a-48ff-bb6e-7d72b67ca994 (pid=1092977)
 ```
 
 ### Btrfs snapshots
