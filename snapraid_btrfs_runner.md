@@ -112,3 +112,27 @@ WantedBy=timers.target
 ```
 systemctl enable snapraid-btrfs-runner.timer --now
 ```
+
+## Errors
+
+### snapraid-btrfs: /mnt/disk1/.snapshots is not a valid btrfs subvolume
+
+Likely root-cause: ".snapshots/" subvolumes deleted.
+
+1. Verify we can see snapper configs
+```
+snapraid-btrfs ls
+```
+2. The snapper is likely outputting information within the files; let's just delete and set this up again.
+```
+rm /etc/snapper/configs/mergerfsdisk1 /etc/snapper/configs/mergerfsdisk2
+```
+
+Modify `/etc/default/snapper` SNAPPER_CONFIGS and delete names.
+
+Recreate
+```
+snapper -c mergerfsdisk1 create-config -t mergerfsdisk /mnt/disk1
+snapper -c mergerfsdisk2 create-config -t mergerfsdisk /mnt/disk2
+```
+3. Verify fix with `snapraid-btrfs ls` and 

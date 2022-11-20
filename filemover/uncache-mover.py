@@ -7,12 +7,33 @@ import subprocess
 import syslog
 import time
 import re
+import os 
+import sys
 from pathlib import Path
 
 ZP = '/sbin/zpool'
-ZFS_CACHE_POOL_NAME = 'cache'
+PID_FILE = '/var/run/uncache-mover.pid'
+CURRENT_PID = str(os.getpid())
 
+def check_pid():
+    """Check that PID file does not exist."""
+    try:
+        with open(PID_FILE) as file:
+            pid = int(file.readline())
+    except OSError:
+        # PID doesn't exist.
+        return 
+    print('Fatal error: Mover script already executing. Check PID file.')
+    sys.exit(1)
 
+def write_pid():
+    """Create a PID File."""
+    try:
+        with open(PID_FILE, "w") as file:
+            file.write(CURRENT_PID)
+    except OSError:
+        print(f"Fatal Error: Unable to write pid file {PID_FILE}")
+        sys.exit(1)
 
 def run(cmd, split=r'\t'):
     r = subprocess.check_output(
@@ -47,13 +68,13 @@ if __name__ == "__main__":
     space by moving heavy/rarely-accessed files to a slower mount point.
     The script, in its simplest form, can be run as:
     ::
-        $ python3 mergerfs-uncache.py -s /mnt/cached -d /mnt/slow-storage -t 10 -v
+        $ python3 uncache-mover.py -s /cached -d /mnt/slow-storage -t 10
     In this way least accessed files will be moved one after the other
     until the percentage of used capacity will be less than the target.
     Other options are also available. Please consider this is a work in
     progress.
     """
-
+    check_pid()
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "-s",
@@ -131,6 +152,8 @@ if __name__ == "__main__":
         )
         exit(0)
 
+    # Create PID file.
+    write_pid()
     syslog.syslog(syslog.LOG_INFO, "Computing candidates...")
     candidates = sorted(
         [(c, c.stat()) for c in cache_path.glob("**/*") if c.is_file()],
@@ -202,3 +225,5 @@ if __name__ == "__main__":
         syslog.LOG_INFO,
         f"Process completed in {round(time.monotonic() - t_start)} seconds. Current usage percentage is {usage_percentage:.2f}%.",
     )
+    # Successful exec; cleanup PID file.
+    os.unlink(PID_FILE)
