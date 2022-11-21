@@ -1,5 +1,17 @@
 # Maintenance Tasks
 
+## Random FUSE lockups
+
+```
+root@nas:/home/gfm# fusermount -uz /mnt/cached/
+root@nas:/home/gfm# fusermount -uz /mnt/slow-storage/
+# umount -l /mnt/cached/ /mnt/slow-storage/
+root@nas:/home/gfm# mount /mnt/cached/
+root@nas:/home/gfm# mount /mnt/slow-storage/
+root@nas:/home/gfm# systemctl restart nfs-kernel-server
+root@nas:/home/gfm# systemctl status nfs-kernel-server
+```
+
 ## CPU / BIOS
 
 ### Intel Microcode releases
@@ -10,6 +22,18 @@ Protip: wait until motherboard manufacturer bundles new microcode in BIOS update
 ### BIOS updates for AsRock B660M Pro RS
 https://www.asrock.com/mb/Intel/B660m%20Pro%20RS/index.asp#BIOS 
 
+
+## GPU
+
+### Verifying which kernel driver may be loaded
+
+```
+# inxi -G
+Graphics:  Device-1: Intel Raptor Lake-S UHD Graphics driver: i915 v: kernel
+           Display: server: No display server data found. Headless machine? tty: 241x22
+           Message: Advanced graphics data unavailable in console for root.
+
+```
 
 ## Services
 
