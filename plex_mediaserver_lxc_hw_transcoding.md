@@ -2,8 +2,6 @@
 
 Notes about Plex and hardware transcoding. My setup is LXC container on Proxmox; with NFS mount to my unraid.
 
-Movie and TV paths are read-only.
-
 ## Intel GPU monitoring (hw transcoding)
 ![Alt text](img\intel-gpu-top.png?raw=true "intel_gpu_top")
 
@@ -30,6 +28,8 @@ apt install intel-media-va-driver-non-free
 ```
 
 ## Setup Proxmox host for GPU passthru to LXC
+
+- proxmox kernel must be 5.19 or later.
 
 Based on: https://wiki.archlinux.org/title/intel_graphics
 

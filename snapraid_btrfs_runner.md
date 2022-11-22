@@ -113,6 +113,12 @@ WantedBy=timers.target
 systemctl enable snapraid-btrfs-runner.timer --now
 ```
 
+### Disable snapraid-btrfs-runner systemd timer
+
+```
+systemctl disable snapraid-btrfs-runner.timer --now
+```
+
 ## Errors
 
 ### snapraid-btrfs: /mnt/disk1/.snapshots is not a valid btrfs subvolume

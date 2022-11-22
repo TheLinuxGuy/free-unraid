@@ -1,3 +1,11 @@
+## TODOs
+
+Investigate VPN docker: https://github.com/qdm12/gluetun#Features
+https://wiki.servarr.com/docker-guide
+
+### Misc
+
+https://3os.org/infrastructure/synology/auto-dsm-config-backup/
 
 ## Autotier experiment
 
