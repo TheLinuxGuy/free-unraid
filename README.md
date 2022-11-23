@@ -25,7 +25,8 @@ The following open-source projects seem to be able to help reach my goals. It re
 
 - [SnapRAID](https://www.snapraid.it). Provides data parity, backups, checksumming of existing backups. 
     - [Claims to be better than UNRAID's](https://www.snapraid.it/compare) own parity system with the ability to 'fix silent errors' and 'verify file integrity' among others.
-- [BRTFS Filesystem](https://btrfs.wiki.kernel.org/index.php/Main_Page) similar to ZFS in that it provides be the ability to 'send/receive' data streams (ala `zfs send`) with the added benefit that I can run individual `disk scrubs` to detect hardware issues that require me to restore from snapraid parity. 
+- [BRTFS Filesystem](https://btrfs.wiki.kernel.org/index.php/Main_Page) similar to ZFS in that it provides be the ability to 'send/receive' data streams (ala `zfs send`) with the added benefit that I can run individual `disk scrubs` to detect hardware issues that require me to restore from snapraid parity. **My observed Btrfs performance is that its poor compared to XFS filesystem on linux.** *Since we use btrfs only for the 'data' disks in the slow mergerfs pool we are not sensitive to speed.*
+- **XFS Filesystem for NVME cache on mdadm array**. After finding bugs and instability in my ZFS+NFS+mergerfs implementation my cache disks are now formatted to XFS in RAID1. I did not use btrfs raid1 natively here because btrfs performance was poor (50% throughtput penalty). XFS was able to match ZFS raw speeds (without arc) ~900MB/s.
 - [MergerFS](https://github.com/trapexit/mergerfs). FUSE filesystem that allows me to 'stitch together' multiple hard drives with different mountpoints and takes care of directing I/O operations based on a set of rules/criteria/policies.
 - [snapraid-btrfs](https://github.com/automorphism88/snapraid-btrfs). Automation and helper script for BRTFS based snapraid configurations. Using BRTFS snapshots as the data source for running 'snapraid sync' allows me to continue using my system 24/7 without data corruption risks or downtime when I want to build my parity/snapraid backups.
 - [snapraid-btrfs-runner](https://github.com/fmoledina/snapraid-btrfs-runner). Helper script that runs `snapraid-btrfs` sending its output to the console, a log file and via email. 
@@ -38,13 +39,26 @@ The following open-source projects seem to be able to help reach my goals. It re
 apt-get install zfsutils-linux cockpit-pcp btrfs-progs libbtrfsutil1 btrfs-compsize duc smartmontools
 ```
 
-## ZFS cache pool setup
+## ~~ZFS cache pool setup~~
+**WARNING! DEPRECATED** NFS+ZFS is unstable with this setup. Follow XFS+mdadm below.
 
 RAID1 of two SSD disks. We'll write all stuff here then purge to 'cold-storage' slower disks via cron.
 
 ```
 zpool create -o ashift=12 cache mirror /dev/sdb /dev/nvme0n1
 ```
+
+## XFS RAID1 mirror mdadm
+
+See [mergerfs](mergerfs.md) for details on ZFS instability. For our cache pool we will use XFS filesystem. Set up the NVME cache as follows:
+
+```
+mdadm --create --verbose /dev/md0  --bitmap=none --level=mirror --raid-devices=2 /dev/nvme0n1 /dev/sdb
+mkfs.xfs -f -L cache /dev/md0
+mdadm --detail /dev/md0
+```
+
+Remember to add a mountpoint to start at boot. 
 
 ## BTRFS (disk setup guide)
 

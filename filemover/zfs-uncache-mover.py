@@ -1,7 +1,8 @@
 #!/usr/bin/python3
 # TheLinuxGuy ZFS cache pool mergerfs tiered cache mover.
 # File age time-based mover depending on goal % cache utilization.
-# TODO: move logs to standalone log file to stop adding crap to syslog
+# This script works but is abandoned after NFS+ZFS+mergerfs instability.
+# !! THIS SCRIPT IS ZFS POOL SPECIFIC !! DO NOT USE ON XFS cache setup.
 import argparse
 import subprocess
 import syslog
