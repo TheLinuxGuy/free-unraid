@@ -18,6 +18,18 @@ Disable subscription nag using this tool. https://tteck.github.io/Proxmox/
 bash -c "$(wget -qLO - https://github.com/tteck/Proxmox/raw/main/misc/post-pve-install.sh)"
 ```
 
+### Limit ZFS Memory usage to 3GB on NAS VM
+
+Dynamic during runtime.
+```
+echo "$[3 * 1024*1024*1024]" >/sys/module/zfs/parameters/zfs_arc_max
+```
+
+Permanent, add/create `/etc/modprobe.d/zfs.conf`
+```
+options zfs zfs_arc_max=3221225472
+```
+
 ## Docker
 ### Update all containers
 
