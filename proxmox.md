@@ -11,6 +11,14 @@ https://www.youtube.com/watch?v=-c_451HV6fE < useful info>
 # lstopo
 ```
 
+## VM not discovering hard disks (plug and unplug)
+
+Try changing the `/etc/kernel/cmdline` to set `iommu=soft`
+
+```
+root=ZFS=rpool/ROOT/pve-1 boot=zfs intel_iommu=on iommu=soft pcie_aspm=force pcie_aspm.policy=powersupersave vfio-pci.ids=144d:a802,8086:7ae2 initcall_blacklist=sysfb_init
+```
+
 ## Avoid pvestatd mkdir bug
 
 Looks like proxmox has a daemon that checks NFS mount points configured with "ISO" and "Container Templates" constantly to make sure the NFS share is responsive (<2 seconds). This may be problematic if unraid-mover.py script keeps deleting folder 'templates/iso/' and /templates/cache/'

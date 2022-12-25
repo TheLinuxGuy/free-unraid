@@ -4,6 +4,18 @@ This repository is a `work-in-progress` of notes and experiments with attempting
 
 This repository makes no guarantees; use information presented here at your own risk. Do you wish to contribute? Submit a pull request. 
 
+#### 12/25/2022 update
+
+My original intended configuration with BRTFS+ZFS while working in practice gave me a lot of instability issues with NFS and down several *troubleshooting rabbit holes* - you will find notes about those issues scattered in the individual markdown sections in the repository.
+
+This also means that "ideal setup" is not up to date with my `real` current configuration. Right now my setup is:
+- /cache mdadm RAID1 NVME XFS mirror (bitmap disabled to improve performance)
+- XFS filesystem on all physical hard disks. This means I am not using `snapraid-btrfs` and using simple snapraid+snapraid-runner.
+
+Once my setup has several `airmiles` being stable and not crashing when sharing NFS/SMB I will do a cleanup of all markdown files. 
+
+See [install_steps.md](install_steps.md) for a quick and dirty guide on standing up my current environment. Other sections may have more details on the specifics (e.g: mergerfs create policies & other settings)
+
 ## The "unraid" ideal setup
 
 After several years running ZFS arrays, in 2022 I decided I wanted to experiment and take a different approach to my home media-server, which as of this writting has 30TB of digital media on a ZFS array.

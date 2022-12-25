@@ -1,6 +1,16 @@
 # Miscelaneous sysadmin notes
 Scratchpad, tips related to system administrator tasks or configuration of certain services running on free-unraid OS.
 
+## OpenWRT
+
+### Calculating DHCP scope settings
+
+```
+ipcalc.sh network-ip mask-or-prefix start limit
+```
+
+https://forum.openwrt.org/t/dhcp-range-configuration/67452/7
+
 ## Ubuntu
 
 ### Newer ZFS repo
@@ -9,6 +19,12 @@ https://launchpad.net/~jonathonf/+archive/ubuntu/zfs
 sudo add-apt-repository ppa:jonathonf/zfs
 sudo apt update
 ```
+
+## Plex Media Server
+
+### Keeping plex-media-server package up-to-date
+
+https://github.com/mrworf/plexupdate
 
 ## Proxmox
 
@@ -29,6 +45,12 @@ Permanent, add/create `/etc/modprobe.d/zfs.conf`
 ```
 options zfs zfs_arc_max=3221225472
 ```
+
+## Samba
+
+### Newer builds for ubuntu
+
+https://launchpad.net/~linux-schools/+archive/ubuntu/samba-latest
 
 ## Docker
 ### Update all containers
