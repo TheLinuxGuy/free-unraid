@@ -6,7 +6,7 @@ This repository makes no guarantees; use information presented here at your own 
 
 #### 12/25/2022 update
 
-My original intended configuration with BRTFS+ZFS while working in practice gave me a lot of instability issues with NFS and down several *troubleshooting rabbit holes* - you will find notes about those issues scattered in the individual markdown sections in the repository.
+My original intended configuration with BTRFS+ZFS while working in practice gave me a lot of instability issues with NFS and down several *troubleshooting rabbit holes* - you will find notes about those issues scattered in the individual markdown sections in the repository.
 
 This also means that "ideal setup" is not up to date with my `real` current configuration. Right now my setup is:
 - /cache mdadm RAID1 NVME XFS mirror (bitmap disabled to improve performance)
