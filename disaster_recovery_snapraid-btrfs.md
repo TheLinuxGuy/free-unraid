@@ -125,6 +125,14 @@ Now we need to verify data (hashing verification stage).
 
 `snapraid -d d2 -a check`
 
+##### Permissions on all recovered files will be root/root and must be fixed
+
+To fix the plex library and fileshares SMB. Reset group to the fileshare groups on all media. /mnt/disk1 was recovered and needs to have permissions reset. 
+
+```
+chgrp -R fileshare /mnt/disk1/media/
+```
+
 ## Recreate backup configurations to resume snapraid sync
 
 ```
@@ -170,4 +178,14 @@ It should work.
 2022-11-01 00:44:53,240 [INFO  ] All done
 2022-11-01 00:44:53,249 [ERROR ] Failed to send email because smtp host is not set
 2022-11-01 00:44:53,249 [INFO  ] Run finished successfully
+```
+
+## Unrecoverable snapraid errors
+
+Snapraid will create and mark unrecoverable files by changing the file extension to *.unrecoverable.
+
+To find all issues that are possibly lost:
+
+```
+find /mnt/disk1 -iname *.unrecoverable
 ```

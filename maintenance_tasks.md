@@ -12,6 +12,12 @@ root@nas:/home/gfm# systemctl restart nfs-kernel-server
 root@nas:/home/gfm# systemctl status nfs-kernel-server
 ```
 
+## List all IOMMU Groups mapping
+
+```
+for d in /sys/kernel/iommu_groups/*/devices/*; do n=${d#*/iommu_groups/*}; n=${n%%/*}; printf 'IOMMU Group %s ' "$n"; lspci -nns "${d##*/}"; done;
+```
+
 ## CPU / BIOS
 
 ### Intel Microcode releases
@@ -64,12 +70,34 @@ Unmount force
 umount -f -l /mnt/derp
 ```
 
+[Safe] Clean up random *.nfs files leftover from NFS crash on filesystem.
+```
+find /mnt/slow-storage/ -type f -regex '.*\.nfs[0-9].*' -delete
+```
+
+[Risky] Clean up random *.nfs files leftover from NFS crash on filesystem.
+```
+find /mnt/cached/ -type f -regex '.*\.nfs[a-zA-Z0-9].*'
+```
+
 ## Storage
 
 Monitor disk activity with the following command.
 ```
 dstat -cd --disk-util --disk-tps
 ```
+
+### SMART checks
+
+```
+for i in {a..d}; do echo DISK sd$i; smartctl -x /dev/sd$i | grep 'Self-test execution status' -A 2; done
+```
+
+run tests
+```
+for i in {a..d}; do echo DISK sd$i; smartctl -t long /dev/sd$i; done
+```
+
 ### Hard drive sleep (hd-idle)
 
 ```
