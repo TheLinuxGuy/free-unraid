@@ -33,7 +33,7 @@ ZFS is a robust filesystem and solution but it requires having all of your hard 
 
 ### TheLinuxGuy's ~10 watt 10Gb Rocket Lake 2023 Build
 
-![TLG 10 watt NAS](.\img\hardware-10g-10w-idle.png)
+![TLG 10 watt NAS](./img/hardware-10g-10w-idle.png)
 
 Motherboard: Asus Prime Z790M-Plus D4 
 - HW Version: Rev 1.xx
