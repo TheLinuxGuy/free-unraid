@@ -262,3 +262,14 @@ Filesystem      Size  Used Avail Use% Mounted on
 ```
 
 **That's it. You have completed a live-replace of `/dev/sde` with `/dev/sdf` a larger drive w/o downtime.**
+
+### Ubuntu expired apt keys
+
+One command to rule them all. https://stackoverflow.com/questions/34733340/mongodb-gpg-invalid-signatures
+
+```
+sudo apt-key list | \
+ grep "expired: " | \
+ sed -ne 's|pub .*/\([^ ]*\) .*|\1|gp' | \
+ xargs -n1 sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys
+ ```

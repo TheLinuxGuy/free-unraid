@@ -31,7 +31,29 @@ ZFS is a robust filesystem and solution but it requires having all of your hard 
 1. **I should be able to recover my files from a single disk catastropic event** (e.g: hardware failure, or specific data block bitrot)
 1. **NVME caching (tiered storage)**. I want to write all new files to superfast storage (nvme) and later 'archive' my data into spinning hard drives.
 
-### The recipe
+### TheLinuxGuy's ~10 watt 10Gb Rocket Lake 2023 Build
+
+![TLG 10 watt NAS](img\hardware-10g-10w-idle.png)
+
+Motherboard: Asus Prime Z790M-Plus D4 
+- HW Version: Rev 1.xx
+- BIOS version 02/22/2023 v0810
+
+CPU: Intel Raptor Lake 13400
+
+CPU cooler: stock intel cooler
+
+RAM: 16GB (2x8GB) G.Skill F4-3000C16-16GISB Aegis DDR4 DDR4-3000 CL16-18-18-38 1.35V
+
+PSU: RGEEK 12V 300W Pico ATX
+
+HDD: 1TB Crucial P3 NVME
+
+10GB NIC: Intel X710-DA2 dual sfp+
+
+Idle: ~10 watt. (~5 watt without 10GB nic)
+
+### The software recipe
 
 The following open-source projects seem to be able to help reach my goals. It requires elbow grease and stich this all together manually to mimic unraid.
 
