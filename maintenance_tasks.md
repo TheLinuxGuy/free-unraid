@@ -18,6 +18,10 @@ root@nas:/home/gfm# systemctl status nfs-kernel-server
 for d in /sys/kernel/iommu_groups/*/devices/*; do n=${d#*/iommu_groups/*}; n=${n%%/*}; printf 'IOMMU Group %s ' "$n"; lspci -nns "${d##*/}"; done;
 ```
 
+## Powertop from source
+
+In debian ensure `apt-get install build-essential` is installed.
+ 
 ## CPU / BIOS
 
 ### Intel Microcode releases
@@ -27,7 +31,6 @@ Protip: wait until motherboard manufacturer bundles new microcode in BIOS update
 
 ### BIOS updates for AsRock B660M Pro RS
 https://www.asrock.com/mb/Intel/B660m%20Pro%20RS/index.asp#BIOS 
-
 
 ## GPU
 

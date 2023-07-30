@@ -26,14 +26,6 @@ sudo apt update
 
 https://github.com/mrworf/plexupdate
 
-## Proxmox
-
-Disable subscription nag using this tool. https://tteck.github.io/Proxmox/
-
-```
-bash -c "$(wget -qLO - https://github.com/tteck/Proxmox/raw/main/misc/post-pve-install.sh)"
-```
-
 ### Limit ZFS Memory usage to 3GB on NAS VM
 
 Dynamic during runtime.

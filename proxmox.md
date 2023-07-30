@@ -11,6 +11,52 @@ https://www.youtube.com/watch?v=-c_451HV6fE < useful info>
 # lstopo
 ```
 
+## Disable subscription nag / initial setup helper script
+
+Disable subscription nag using this tool. https://tteck.github.io/Proxmox/
+
+```
+bash -c "$(wget -qLO - https://github.com/tteck/Proxmox/raw/main/misc/post-pve-install.sh)"
+```
+
+## PCI passthrough SATA onboard controller AHCI 
+
+```
+lspci -knn
+```
+
+You will need to edit `udev` and a few other things.
+
+https://gist.github.com/kiler129/4f765e8fdc41e1709f1f34f7f8f41706 
+
+-- probably not needed. Just add softdep to the /etc/modprobe.d/asmedia-sata.conf
+
+```
+options vfio-pci ids=8086:43d3
+softdep ahci pre: vfio-pci
+```
+
+## Building corefreq-cli fails
+
+Error
+```
+make[1]: *** /lib/modules/6.2.11-2-pve/build: No such file or directory.  Stop.
+make: *** [Makefile:86: all] Error 2
+```
+You need to install headers. 
+```
+apt-get install linux-headers-`uname -r`
+```
+
+## Intel GPU passthru
+
+Enable kernel `kvmgt` module in /etc/modules 
+
+also add `i915.enable_gvt=1` to /etc/kernel/cmdline
+
+Run
+`update-initramfs -u -k all` and refresh
+
 ## VM not discovering hard disks (plug and unplug)
 
 Try changing the `/etc/kernel/cmdline` to set `iommu=soft`
