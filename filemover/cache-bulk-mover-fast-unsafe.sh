@@ -39,8 +39,12 @@
 # If an error occurs in copying (or overwriting) a file from the cache disk to the array, the
 # file on the array, if present, is deleted and the operation continues on to the next file.
 
+CACHE_PATH="/cache"
+MERGERFS_SHARE_PATH="/mnt/cached"
+MERGERFS_ARCHIVE_PATH="/mnt/slow-storage/"
+
 # Only run script if cache disk enabled and in use
-if [ ! -d /cache -o ! -d /mnt/cached ]; then
+if [ ! -d $CACHE_PATH -o ! -d $MERGERFS_SHARE_PATH ]; then
   exit 0
 fi
 
@@ -54,13 +58,13 @@ fi
 echo $$ >/var/run/mover.pid
 echo "mover started"
 
-cd /cache
+cd $CACHE_PATH
 shopt -s nullglob
 for Share in */ ; do
     echo "moving \"${Share%/}\""
     find "./$Share" -depth \( \( -type f ! -exec fuser -s {} \; \) -o \( -type d -empty \) \) -print \
-        \( -exec rsync -i -dIWRpEAXogt --numeric-ids --inplace {} /mnt/slow-storage/ \; -delete \) -o \( -type f -exec rm -f /mnt/slow-storage/{} \; \)
+        \( -exec rsync -i -dIWRpEAXogt --numeric-ids --inplace {} $MERGERFS_ARCHIVE_PATH \; -delete \) -o \( -type f -exec rm -f /mnt/slow-storage/{} \; \)
 done
-
+find $CACHE_PATH -empty -type d -delete
 rm /var/run/mover.pid
 echo "mover finished"
