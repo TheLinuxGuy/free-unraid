@@ -12,6 +12,16 @@ root@nas:/home/gfm# systemctl restart nfs-kernel-server
 root@nas:/home/gfm# systemctl status nfs-kernel-server
 ```
 
+## List all IOMMU Groups mapping
+
+```
+for d in /sys/kernel/iommu_groups/*/devices/*; do n=${d#*/iommu_groups/*}; n=${n%%/*}; printf 'IOMMU Group %s ' "$n"; lspci -nns "${d##*/}"; done;
+```
+
+## Powertop from source
+
+In debian ensure `apt-get install build-essential` is installed.
+ 
 ## CPU / BIOS
 
 ### Intel Microcode releases
@@ -21,7 +31,6 @@ Protip: wait until motherboard manufacturer bundles new microcode in BIOS update
 
 ### BIOS updates for AsRock B660M Pro RS
 https://www.asrock.com/mb/Intel/B660m%20Pro%20RS/index.asp#BIOS 
-
 
 ## GPU
 
@@ -64,12 +73,34 @@ Unmount force
 umount -f -l /mnt/derp
 ```
 
+[Safe] Clean up random *.nfs files leftover from NFS crash on filesystem.
+```
+find /mnt/slow-storage/ -type f -regex '.*\.nfs[0-9].*' -delete
+```
+
+[Risky] Clean up random *.nfs files leftover from NFS crash on filesystem.
+```
+find /mnt/cached/ -type f -regex '.*\.nfs[a-zA-Z0-9].*'
+```
+
 ## Storage
 
 Monitor disk activity with the following command.
 ```
 dstat -cd --disk-util --disk-tps
 ```
+
+### SMART checks
+
+```
+for i in {a..d}; do echo DISK sd$i; smartctl -x /dev/sd$i | grep 'Self-test execution status' -A 2; done
+```
+
+run tests
+```
+for i in {a..d}; do echo DISK sd$i; smartctl -t long /dev/sd$i; done
+```
+
 ### Hard drive sleep (hd-idle)
 
 ```
@@ -234,3 +265,14 @@ Filesystem      Size  Used Avail Use% Mounted on
 ```
 
 **That's it. You have completed a live-replace of `/dev/sde` with `/dev/sdf` a larger drive w/o downtime.**
+
+### Ubuntu expired apt keys
+
+One command to rule them all. https://stackoverflow.com/questions/34733340/mongodb-gpg-invalid-signatures
+
+```
+sudo apt-key list | \
+ grep "expired: " | \
+ sed -ne 's|pub .*/\([^ ]*\) .*|\1|gp' | \
+ xargs -n1 sudo apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys
+ ```

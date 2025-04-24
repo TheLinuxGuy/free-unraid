@@ -3,6 +3,9 @@
 # File age time-based mover depending on goal % cache utilization.
 # This script works but is abandoned after NFS+ZFS+mergerfs instability.
 # !! THIS SCRIPT IS ZFS POOL SPECIFIC !! DO NOT USE ON XFS cache setup.
+
+# Usage example:
+# python3 zfs-uncache-mover.py -s /cache -d /mnt/slow-storage -t 10
 import argparse
 import subprocess
 import syslog
@@ -12,8 +15,9 @@ import os
 import sys
 from pathlib import Path
 
-ZP = '/sbin/zpool'
+ZP = '/usr/sbin/zpool' # proxmox zpool path.
 PID_FILE = '/var/run/uncache-mover.pid'
+IGNORE_PATH = '/cache/media/downloads/incomplete/'
 CURRENT_PID = str(os.getpid())
 
 def check_pid():
@@ -61,6 +65,13 @@ def pool_attributes(pool_name):
         'usage_percentage': int(x[4]),
     } for x in r}
 
+def sizeof_fmt(num, suffix="B"):
+    for unit in ["", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi"]:
+        if abs(num) < 1024.0:
+            return f"{num:3.1f}{unit}{suffix}"
+        num /= 1024.0
+    return f"{num:.1f}Yi{suffix}"
+
 
 if __name__ == "__main__":
     """
@@ -81,14 +92,12 @@ if __name__ == "__main__":
         "-s",
         "--source",
         dest="source",
-        type=Path,
         help="ZFS Cache Pool name",
     )
     parser.add_argument(
         "-d",
         "--destination",
         dest="destination",
-        type=Path,
         help="Destination path (i.e. slow pool root path.",
     )
     parser.add_argument(
@@ -121,10 +130,10 @@ if __name__ == "__main__":
     zfs_pool_name_from_path = (str(args.source)).lstrip('/')
 
     # Some general checks
-    cache_path: Path = args.source
+    cache_path: Path = Path(args.source)
     if not cache_path.is_dir():
         raise NotADirectoryError(f"{cache_path} is not a valid directory.")
-    slow_path: Path = args.destination
+    slow_path: Path = Path(args.destination)
     if not slow_path.is_dir():
         raise NotADirectoryError(f"{slow_path} is not a valid directory.")
 
@@ -164,6 +173,9 @@ if __name__ == "__main__":
     t_start = time.monotonic()
     syslog.syslog(syslog.LOG_INFO, "Processing candidates...")
     cache_used = cache_stats['used']
+    ignored_files = 0
+
+
     for c_id, (c_path, c_stat) in enumerate(candidates):
         syslog.syslog(syslog.LOG_DEBUG, f"{c_path}")
 
@@ -175,6 +187,9 @@ if __name__ == "__main__":
             syslog.syslog(syslog.LOG_WARNING, f"{c_path} does not exist.")
             continue
 
+        if c_path.is_relative_to(IGNORE_PATH):
+            ignored_files += 1
+            continue
         # Rsync options
         # -a, --archive               archive mode; equals -rlptgoD (no -H,-A,-X)
         # -x, --one-file-system       don't cross filesystem boundaries
@@ -222,6 +237,11 @@ if __name__ == "__main__":
     zfs_data = pool_attributes(zfs_pool_name_from_path)
     cache_stats = zfs_data[zfs_pool_name_from_path]
     usage_percentage = 100 * cache_stats['used'] / cache_stats['total']
+
+    syslog.syslog(
+        syslog.LOG_INFO,
+        f"There were {ignored_files} file skipped due to being on {IGNORE_PATH} path.",
+    )
     syslog.syslog(
         syslog.LOG_INFO,
         f"Process completed in {round(time.monotonic() - t_start)} seconds. Current usage percentage is {usage_percentage:.2f}%.",
