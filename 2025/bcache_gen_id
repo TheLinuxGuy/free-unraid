@@ -1,0 +1,29 @@
+#!/bin/bash
+# Taken from https://forum.rockstor.com/t/bcache-developers-notes/2762
+
+# chmod a+x /usr/lib/udev/bcache_gen_id
+
+
+[ -z "$DEVPATH" ] && DEVPATH="$1"
+
+BCACHE_DEVPATH=$(readlink -f "/sys/$DEVPATH/bcache")
+[ -z "$BCACHE_DEVPATH" ] && exit 1
+
+echo "ID_BCACHE_CSET_UUID=$(basename "$(readlink -f "$BCACHE_DEVPATH/cache")")"
+
+BDEV_PROPERTIES=$(udevadm info -q property "$(dirname "$BCACHE_DEVPATH")")
+echo "$BDEV_PROPERTIES" | awk -F= -f <(cat <<-'EOF'
+        /^ID_MODEL=/ {
+                print "ID_BCACHE_BDEV_MODEL="$2
+        }
+	/^ID_SERIAL_SHORT=/ {
+                print "ID_BCACHE_BDEV_SERIAL="$2
+        }
+	/^PARTN=/ {
+                print "ID_BCACHE_BDEV_PARTN="$2
+        }
+	/^ID_FS_UUID=/ {
+                print "ID_BCACHE_BDEV_FS_UUID="$2
+        }
+EOF
+)

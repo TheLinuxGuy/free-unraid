@@ -1,0 +1,16 @@
+# Create this on path /etc/udev/rules.d/99-bcache-by-id.rules
+# From: https://forum.rockstor.com/t/bcache-developers-notes/2762
+
+# Create by-id symlinks for bcache-backed devices based on the bcache cset UUID.
+# Also, set a device serial number so Rockstor accepts it as legit.
+
+DEVPATH=="/devices/virtual/block/bcache*", \
+        IMPORT{program}="bcache_gen_id $devpath"
+
+DEVPATH=="/devices/virtual/block/bcache*", ENV{ID_BCACHE_BDEV_PARTN}=="", \
+        SYMLINK+="disk/by-id/bcache-$env{ID_BCACHE_BDEV_MODEL}-$env{ID_BCACHE_BDEV_SERIAL}", \
+        ENV{ID_SERIAL}="bcache-$env{ID_BCACHE_BDEV_FS_UUID}"
+
+DEVPATH=="/devices/virtual/block/bcache*", ENV{ID_BCACHE_BDEV_PARTN}!="", \
+        SYMLINK+="disk/by-id/bcache-$env{ID_BCACHE_BDEV_MODEL}-$env{ID_BCACHE_BDEV_SERIAL}-part$env{ID_BCACHE_BDEV_PARTN}", \
+        ENV{ID_SERIAL}="bcache-$env{ID_BCACHE_BDEV_FS_UUID}-p$env{ID_BCACHE_BDEV_PARTN}"
