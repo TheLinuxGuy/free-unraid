@@ -54,31 +54,185 @@ root@bpve:~#
 
 ```
 
+#### Command cheatsheet
+
+- `nmdctl reload` Force reset any config and superblock
+- `nmdctl status` check status if noraid
+
 ### noraid array create force
 
-- You must
+- You must fix udev before attempting the below. 
+
+Manual create command
+
+Get size of raw disk
+`blockdev --getsize /dev/bcache1` 
+
+- returned `35156656112` --- BUT this must be divided by 2. **Use `17578328056` for manual import**
+
+Make sure disk by-id udev works
+```bash
+root@bpve:~# ls -lah /dev/disk/by-id/ | grep bcache
+...
+```
+
+- SLOT ID 0 or 29 is partity disks.
+- SLOT ID 1 to 28 is data disks.
 
 ```bash
-root@bpve:~# lsblk
-NAME          MAJ:MIN RM   SIZE RO TYPE  MOUNTPOINTS
-sda             8:0    0 238.5G  0 disk  
-├─sda1          8:1    0  1007K  0 part  
-├─sda2          8:2    0     1G  0 part  
-└─sda3          8:3    0   237G  0 part  
-sdb             8:16   0  12.7T  0 disk  
-└─bcache0     251:0    0  12.7T  0 disk  
-  └─bcache0p1 251:1    0  12.7T  0 part  
-sdc             8:32   0  16.4T  0 disk  
-└─bcache1     251:128  0  16.4T  0 disk  
-  └─bcache1p1 251:129  0  16.4T  0 part  
-sdd             8:48   0  16.4T  0 disk  
-└─bcache2     251:256  0  16.4T  0 disk  
-  └─bcache2p1 251:257  0  16.4T  0 part  
-nvme1n1       259:0    0   1.8T  0 disk  
-└─md127         9:127  0   1.8T  0 raid1 
-nvme0n1       259:1    0   1.8T  0 disk  
-nvme2n1       259:2    0   1.8T  0 disk  
-└─md127         9:127  0   1.8T  0 raid1 
+echo "import 1 bcache1 0 17578328056 0 bcache-ST18000NE000-3G6101-ZVTEFBA9" > /proc/nmdcmd
+root@bpve:~# echo "import 1 bcache1 0 35156656112 0 bcache-ST18000NE000-3G6101-MYSERIAL" > /proc/nmdcmd
+root@bpve:~# echo "start NEW_ARRAY" > /proc/nmdcmd
+root@bpve:~# ls -lah /dev/nmd1p1
+brw-rw---- 1 root disk 127, 1 Oct  4 11:51 /dev/nmd1p1
+root@bpve:~# pv /dev/nmd1p1 -> /dev/null
+^C53GiB 0:00:07 [ 235MiB/s] [             <=>                                                                                    ]
+root@bpve:~# 
+```
+
+### VICTORY! (more work needed)
+
+```bash
+root@bpve:~# nmdctl status
+=== NonRAID Array Status ===
+
+Array State   : STARTED
+Superblock    : /nonraid.dat
+Disks Present : 1
+
+WARNING: Driver internal state is inconsistent!
+The array mdNum* counters show non-zero values, but all individual disks are DISK_OK status.
+This can happen after initial array creation, but it may cause unexpected behavior.
+Recommend reloading the driver and starting the array again: nmdctl reload && nmdctl start
+
+Array Health  : DEGRADED (Invalid: 2, Disabled: 2, I/O Errors: 1)
+Array Checked : never
+Array Size    : 32.7 TB (1 data disk(s))
+Parity        : No Parity
+
+=== Disk Status ===
+
+Slot  Status       Device        Size     FS       Mountpoint  Usage  Reads   Writes
+----  -----------  ------------  -------  -------  ----------  -----  ------  ------
+P     DISABLED     (unassigned)  0 B      P        -           -      0 B     0 B   
+1     OK (1 errs)  bcache1       32.7 TB  unknown  unmounted   -      1.5 GB  0 B   
 root@bpve:~# 
 
+```
+
+## A real-attempt at an array after learning the basics
+
+Previous step I learned how to manually map and disk and array. Now let's try to make this real, given 3 hard drives (1 parity, 2 data) let's build something.
+
+- DATA1 (smaller): bcache0 WD140EDFZ-11 0A81  /dev/sdb 
+- PARITY: bcache1 ST18000NE000-3G6 EN01  /dev/sdc 
+- DATA2 (match parity disk size): bcache2 WD180EDGZ-11 0A85  /dev/sdd 
+
+#### Commands dumpster
+
+1. Get disk sizes
+```
+root@bpve:~# device=/dev/bcache0; echo $(( $(blockdev --getsize "$device") / 2 ))
+13672382456
+root@bpve:~# device=/dev/bcache1; echo $(( $(blockdev --getsize "$device") / 2 ))
+17578328056
+root@bpve:~# device=/dev/bcache2; echo $(( $(blockdev --getsize "$device") / 2 ))
+17578328056
+```
+
+2. Make sure disks have partitions. If one doesn't have partitions it won't show up in `status` command.  Use `partprobe /dev/bcache0` to force rescan if you just partitioned with `sgdisk -o -a 8 -n 1:32K:0 /dev/bcache0`
+
+3. Configure the array.
+
+```bash
+echo "import 0 bcache1p1 0 17578328056 0 bcache-ST18000NE000-3G6101-ZVTEFBA9" > /proc/nmdcmd
+echo "import 1 bcache0p1 0 13672382456 0 bcache-WDC_WD140EDFZ-11A0VA0-QBJ2NRVT" > /proc/nmdcmd
+echo "import 2 bcache2p1 0 17578328056 0 bcache-WDC_WD180EDGZ-11B2DA0-3FHMY6ZT" > /proc/nmdcmd
+```
+
+Now we see it configured as expected and we should start it.
+
+```
+root@bpve:~# nmdctl status
+=== NonRAID Array Status ===
+
+Array State   : NEW_ARRAY
+Superblock    : /nonraid.dat
+Disks Present : 3
+Array Health  : NEW (New array, parity needs to be built)
+Array Checked : never
+Array Size    : 0 B (0 data disk(s))
+Parity        : No Parity
+
+Disk reconstruction pending: Parity-Sync P
+Start the array and use 'nmdctl check' command to start the operation
+
+=== Disk Status ===
+
+Slot  Status  Device     Size   
+----  ------  ---------  -------
+P     NEW     bcache1p1  16.3 TB
+1     NEW     bcache0p1  12.7 TB
+2     NEW     bcache2p1  16.3 TB
+root@bpve:~# 
+```
+
+4. Start array and rebuild.
+
+```bash
+root@bpve:~# nmdctl status
+=== NonRAID Array Status ===
+
+Array State   : STARTED
+Superblock    : /nonraid.dat
+Disks Present : 3
+Array Health  : DEGRADED (Invalid: 2, Disabled: 1, I/O Errors: 2)
+Array Checked : never
+Array Size    : 29.1 TB (2 data disk(s))
+Parity        : No Parity
+
+Disk reconstruction pending: Parity-Sync P
+Use 'nmdctl check' command to start the operation
+
+=== Disk Status ===
+
+Slot  Status       Device     Size     FS       Mountpoint  Usage  Reads  Writes
+----  -----------  ---------  -------  -------  ----------  -----  -----  ------
+P     INVALID      bcache1p1  16.3 TB  P        -           -      0 B    0 B   
+1     OK (1 errs)  bcache0p1  12.7 TB  unknown  unmounted   -      20 kB  0 B   
+2     OK (1 errs)  bcache2p1  16.3 TB  unknown  unmounted   -      20 kB  0 B   
+root@bpve:~# nmdctl check
+Warning: A sync operation other than parity check is pending: Parity-Sync P
+Do you want to proceed with Parity-Sync P? (y/N): y
+Starting Parity-Sync P...
+Parity-Sync P started
+root@bpve:~# 
+```
+
+Errors during parity sync, could this be due to wrong disk size? I had used `blockdev --getsize` on parent /dev/bcacheN and not the partition. TBD.
+
+```
+[ 3559.284700] I/O error, dev sdc, sector 8144 op 0x1:(WRITE) flags 0x0 phys_seg 16 prio class 0
+[ 3559.284936] nmd: disk0 write error, sector=8064
+[ 3559.285170] nmd: disk0 write error, sector=8072
+[ 3559.285410] nmd: disk0 write error, sector=8080
+[ 3559.285648] nmd: disk0 write error, sector=8088
+[ 3559.285887] nmd: disk0 write error, sector=8096
+[ 3559.286126] nmd: disk0 write error, sector=8104
+[ 3559.286389] nmd: disk0 write error, sector=8112
+[ 3559.286627] nmd: disk0 write error, sector=8120
+[ 3559.286861] nmd: disk0 write error, sector=8128
+[ 3559.287100] nmd: disk0 write error, sector=8136
+[ 3559.287336] nmd: disk0 write error, sector=8144
+[ 3559.287573] nmd: disk0 write error, sector=8152
+[ 3559.287806] nmd: disk0 write error, sector=8160
+[ 3559.288048] nmd: disk0 write error, sector=8168
+[ 3559.288282] nmd: disk0 write error, sector=8176
+[ 3559.288518] nmd: disk0 write error, sector=8184
+[ 3559.288756] ata7: EH complete
+[ 3559.291681] nmd: recovery thread: exit status: -4
+[ 3570.215118] Buffer I/O error on dev nmd1p1, logical block 3418095612, async page read
+[ 3570.223774] Buffer I/O error on dev nmd2p1, logical block 4394582012, async page read
+[ 3575.302502] Buffer I/O error on dev nmd1p1, logical block 3418095612, async page read
+[ 3575.311644] Buffer I/O error on dev nmd2p1, logical block 4394582012, async page read
 ```
