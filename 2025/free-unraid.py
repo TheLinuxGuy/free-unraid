@@ -4,6 +4,29 @@ Author: Giovanni Mazzeo (github.com/thelinuxguy)
 
 free-unraid.py - Manage physical hard drives and logical storage configurations on Linux systems.
 Integrates with bcache and the nonraid project.
+
+DISK IDENTIFICATION STRATEGY:
+This script uses a robust unique identifier system to track disks throughout their lifecycle,
+even when device paths change due to kernel renaming (e.g., /dev/sde -> /dev/sdc).
+
+1. NORMAL CASE (disk has unique serial):
+   - unique_id = serial number from smartctl
+   - Example: "WD-WCATR1234567"
+
+2. EDGE CASE: Disk has no serial number:
+   - unique_id = "NO_SERIAL_<device_name>"
+   - Example: "NO_SERIAL_sda"
+   - WARNING: Tracking may be lost if device is disconnected/reconnected
+   - User is warned during configuration
+
+3. EDGE CASE: Multiple disks with duplicate serial (rare but possible):
+   - unique_id = "<serial>_<device_name>"
+   - Example: "ABC123_sda" and "ABC123_sdb"
+   - Differentiates by appending device name
+   - User is warned about duplicate serial during discovery
+
+All configuration tracking uses unique_id as the key, ensuring consistent disk identification
+regardless of device path changes during cleanup, bcache creation, or system reboots.
 """
 
 import argparse
@@ -105,10 +128,18 @@ def dependency_check() -> bool:
     """
     dependencies = {
         'parted': 'partition management',
+        'partprobe': 'partition table refresh',
         'sgdisk': 'GPT partitioning',
         'make-bcache': 'bcache creation',
         'blockdev': 'device information',
-        'smartctl': 'SMART status'
+        'smartctl': 'SMART status',
+        'wipefs': 'filesystem signature removal',
+        'pvs': 'LVM physical volume scan',
+        'vgremove': 'LVM volume group removal',
+        'pvremove': 'LVM physical volume removal',
+        'dmsetup': 'device-mapper management',
+        'udevadm': 'device event management',
+        'dd': 'low-level disk operations'
     }
     
     log_info("Checking dependencies...")
@@ -222,14 +253,20 @@ def get_smart_status(device: str) -> Tuple[str, int]:
                 else:
                     status = "FAILING"
         
-        # Get power-on hours
+        # Get power-on hours - use RAW_VALUE (last column)
         for line in result.stdout.split('\n'):
             if 'Power_On_Hours' in line or 'Power On Hours' in line:
                 parts = line.split()
-                for i, part in enumerate(parts):
-                    if part.isdigit() and i > 0:
-                        hours = int(part)
-                        break
+                # The RAW_VALUE is typically the last field in smartctl -A output
+                # Format: ID ATTRIBUTE_NAME FLAG VALUE WORST THRESH TYPE UPDATED WHEN_FAILED RAW_VALUE
+                if len(parts) >= 10:
+                    # Last field is the raw value
+                    try:
+                        hours = int(parts[-1])
+                    except ValueError:
+                        # Sometimes raw value might have additional info, try to extract first number
+                        raw_value = parts[-1].split()[0]
+                        hours = int(raw_value)
     except Exception:
         pass
     
@@ -237,17 +274,32 @@ def get_smart_status(device: str) -> Tuple[str, int]:
 
 
 def get_ata_slot(device: str) -> Optional[str]:
-    """Get ATA/SATA slot mapping for the device"""
+    """Get ATA/SATA slot mapping or SCSI address for the device"""
     try:
         # Get the device name without /dev/
         dev_name = device.replace('/dev/', '')
         
-        # Try to find ATA slot in sysfs
+        # Try to find slot info in sysfs
         sys_block_path = f"/sys/block/{dev_name}"
         if os.path.exists(sys_block_path):
             device_link = os.readlink(sys_block_path)
-            # Look for ata pattern in the path
-            match = re.search(r'ata\d+\.\d+', device_link)
+            
+            # Look for SCSI address pattern (e.g., 5:0:0:0 for SATA)
+            match = re.search(r'(\d+:\d+:\d+:\d+)/block/', device_link)
+            if match:
+                return match.group(1)
+            
+            # Look for NVMe PCI address pattern (e.g., 0000:08:00.0)
+            if 'nvme' in dev_name:
+                match = re.search(r'(0000:[0-9a-f]{2}:[0-9a-f]{2}\.\d+)/nvme', device_link)
+                if match:
+                    # Return just the bus:device.function part for readability
+                    pci_addr = match.group(1)
+                    # Strip the leading 0000: domain
+                    return pci_addr.replace('0000:', '')
+            
+            # Fallback to ata pattern (e.g., ata6)
+            match = re.search(r'ata\d+', device_link)
             if match:
                 return match.group(0)
         
@@ -292,7 +344,7 @@ def get_bcache_info(device: str) -> Optional[Dict[str, str]]:
     Get bcache information for a device.
     
     Returns:
-        Dict with bcache device and by-id path, or None
+        Dict with bcache device, by-id path, UUID, and cache set UUID, or None
     """
     try:
         # Check if device is a bcache backing device
@@ -311,36 +363,64 @@ def get_bcache_info(device: str) -> Optional[Dict[str, str]]:
                     if os.path.exists(by_id_path):
                         return {
                             'device': device,
-                            'by_id': by_id_path
+                            'by_id': by_id_path,
+                            'uuid': None,
+                            'cache_set_uuid': None
                         }
                 
                 return {
                     'device': device,
-                    'by_id': None
+                    'by_id': None,
+                    'uuid': None,
+                    'cache_set_uuid': None
                 }
             return None
         
-        # Find the bcache device number
-        bcache_dev_path = os.path.join(bcache_path, 'dev')
-        if os.path.exists(bcache_dev_path):
-            with open(bcache_dev_path, 'r') as f:
-                bcache_dev = f.read().strip()
+        # Find the bcache device - 'dev' is a symlink to the bcache device
+        bcache_dev_symlink = os.path.join(bcache_path, 'dev')
+        if os.path.islink(bcache_dev_symlink):
+            # Read the symlink target
+            target = os.readlink(bcache_dev_symlink)
+            # Extract bcache device name from path like ../../../../../virtual/block/bcache0
+            bcache_dev = os.path.basename(target)
+            
+            # Get bcache UUIDs
+            backing_dev_uuid = None
+            cache_set_uuid = None
+            
+            try:
+                uuid_path = os.path.join(bcache_path, 'backing_dev_uuid')
+                if os.path.exists(uuid_path):
+                    with open(uuid_path, 'r') as f:
+                        backing_dev_uuid = f.read().strip()
+            except Exception:
+                pass
+            
+            try:
+                cache_uuid_path = os.path.join(bcache_path, 'cache_set')
+                if os.path.islink(cache_uuid_path):
+                    # Extract UUID from symlink target
+                    cache_target = os.readlink(cache_uuid_path)
+                    cache_set_uuid = os.path.basename(cache_target)
+            except Exception:
+                pass
             
             # Find by-id symlink
+            by_id = None
             by_id_dir = Path('/dev/disk/by-id')
             if by_id_dir.exists():
                 for symlink in by_id_dir.iterdir():
-                    if symlink.name.startswith('bcache-'):
+                    if symlink.name.startswith('bcache-') and not symlink.name.endswith('-part1'):
                         target = symlink.resolve()
                         if target.name == bcache_dev:
-                            return {
-                                'device': f"/dev/{bcache_dev}",
-                                'by_id': str(symlink)
-                            }
+                            by_id = str(symlink)
+                            break
             
             return {
                 'device': f"/dev/{bcache_dev}",
-                'by_id': None
+                'by_id': by_id,
+                'uuid': backing_dev_uuid,
+                'cache_set_uuid': cache_set_uuid
             }
     except Exception as e:
         log_verbose(f"Could not get bcache info for {device}: {e}")
@@ -394,15 +474,25 @@ def discover_system() -> Dict:
     
     system = {}
     disks = get_disk_list()
+    serial_to_disks = {}  # Track duplicate serials
     
     for disk in disks:
         log_verbose(f"Scanning {disk}...")
+        
+        disk_serial = get_disk_serial(disk)
+        
+        # Track duplicate serials
+        if disk_serial:
+            if disk_serial in serial_to_disks:
+                serial_to_disks[disk_serial].append(disk)
+            else:
+                serial_to_disks[disk_serial] = [disk]
         
         disk_info = {
             'disk_path': disk,
             'raw_disk_size': get_disk_size(disk),
             'disk_model': get_disk_model(disk),
-            'disk_serial': get_disk_serial(disk),
+            'disk_serial': disk_serial,
             'disk_smart_status': None,
             'disk_hours': 0,
             'ata_slot': get_ata_slot(disk),
@@ -418,8 +508,99 @@ def discover_system() -> Dict:
         
         system[disk] = disk_info
     
+    # Check for duplicate or missing serials and create unique identifiers
+    for disk, disk_info in system.items():
+        serial = disk_info['disk_serial']
+        
+        if not serial:
+            # No serial number - create unique ID from device path
+            unique_id = f"NO_SERIAL_{disk.replace('/dev/', '')}"
+            disk_info['unique_id'] = unique_id
+            log_warning(f"Disk {disk} has no serial number, using fallback ID: {unique_id}")
+        elif len(serial_to_disks.get(serial, [])) > 1:
+            # Duplicate serial - append device name to make it unique
+            unique_id = f"{serial}_{disk.replace('/dev/', '')}"
+            disk_info['unique_id'] = unique_id
+            log_warning(f"Disk {disk} has duplicate serial {serial}, using unique ID: {unique_id}")
+        else:
+            # Normal case - serial is unique
+            disk_info['unique_id'] = serial
+    
+    # Warn about duplicate serials
+    for serial, disk_list in serial_to_disks.items():
+        if len(disk_list) > 1:
+            log_warning(f"Duplicate serial number detected: {serial}")
+            log_warning(f"  Affected disks: {', '.join(disk_list)}")
+            log_warning(f"  Using device-specific unique IDs to differentiate")
+    
     log_info(f"Discovery complete: {len(system)} disk(s) found")
     return system
+
+
+def find_disk_by_serial(serial: str) -> Optional[str]:
+    """
+    Find a disk device path by its serial number.
+    
+    Args:
+        serial: Disk serial number to search for
+    
+    Returns:
+        Device path (e.g., '/dev/sda') or None if not found
+    """
+    if not serial:
+        return None
+    
+    disks = get_disk_list()
+    for disk in disks:
+        disk_serial = get_disk_serial(disk)
+        if disk_serial == serial:
+            log_verbose(f"Found disk with serial {serial} at {disk}")
+            return disk
+    
+    return None
+
+
+def find_disk_by_unique_id(unique_id: str) -> Optional[str]:
+    """
+    Find a disk device path by its unique identifier.
+    Handles both regular serials and fallback IDs for disks without serials or with duplicates.
+    
+    Args:
+        unique_id: Unique identifier (serial, or fallback ID like "NO_SERIAL_sda" or "SERIAL123_sda")
+    
+    Returns:
+        Device path (e.g., '/dev/sda') or None if not found
+    """
+    if not unique_id:
+        return None
+    
+    # Check if this is a fallback ID format (contains underscore and device name)
+    if unique_id.startswith('NO_SERIAL_'):
+        # Extract device name from "NO_SERIAL_sda"
+        dev_name = unique_id.replace('NO_SERIAL_', '')
+        device_path = f"/dev/{dev_name}"
+        if os.path.exists(device_path):
+            log_verbose(f"Found disk with fallback ID {unique_id} at {device_path}")
+            return device_path
+        return None
+    
+    # Check for duplicate serial format "SERIAL_sda"
+    if '_' in unique_id:
+        # This might be a duplicate serial with device suffix
+        # Try to extract the device name (last part after underscore)
+        parts = unique_id.rsplit('_', 1)
+        if len(parts) == 2:
+            dev_name = parts[1]
+            device_path = f"/dev/{dev_name}"
+            if os.path.exists(device_path):
+                # Verify the serial matches (first part before underscore)
+                disk_serial = get_disk_serial(device_path)
+                if disk_serial == parts[0]:
+                    log_verbose(f"Found disk with duplicate serial ID {unique_id} at {device_path}")
+                    return device_path
+    
+    # Standard case: search by serial number
+    return find_disk_by_serial(unique_id)
 
 
 def calculate_nmdcmd_size(device_path: str) -> Optional[int]:
@@ -573,7 +754,12 @@ def cmd_show(args) -> int:
         print(f"  Size: {disk_info['raw_disk_size'] or 'Unknown'}")
         print(f"  SMART Status: {disk_info['disk_smart_status']}")
         print(f"  Power-On Hours: {disk_info['disk_hours']}")
-        print(f"  ATA Slot: {disk_info['ata_slot'] or 'Unknown'}")
+        
+        # Show slot with appropriate label based on device type
+        if 'nvme' in disk_path:
+            print(f"  NVMe PCI Slot: {disk_info['ata_slot'] or 'Unknown'}")
+        else:
+            print(f"  ATA Slot: {disk_info['ata_slot'] or 'Unknown'}")
         
         # Partitions
         if disk_info['partitions']:
@@ -591,6 +777,10 @@ def cmd_show(args) -> int:
             print(f"    Device: {disk_info['bcache']['device']}")
             if disk_info['bcache']['by_id']:
                 print(f"    By-ID: {disk_info['bcache']['by_id']}")
+            if disk_info['bcache']['uuid']:
+                print(f"    Backing Device UUID: {disk_info['bcache']['uuid']}")
+            if disk_info['bcache']['cache_set_uuid']:
+                print(f"    Cache Set UUID: {disk_info['bcache']['cache_set_uuid']}")
         else:
             print(f"\n  Bcache: Not configured")
         
@@ -634,26 +824,28 @@ def cmd_configure(args) -> int:
         index = 1
         
         for disk_path, disk_info in system.items():
-            # Skip disks that already have bcache or nonraid config
-            if disk_info['bcache'] or disk_info['nonraid_config']:
-                status = "configured"
-            elif disk_path in pending_configs:
+            # Check disk status by unique_id (handles serials, missing serials, and duplicates)
+            unique_id = disk_info.get('unique_id')
+            if unique_id and unique_id in pending_configs:
                 status = "pending"
+                status_color = Colors.OKCYAN
+            elif disk_info['bcache'] or disk_info['nonraid_config']:
+                status = "configured"
+                status_color = Colors.WARNING
             else:
                 status = "available"
-                available_disks.append(disk_path)
-                disk_index_map[index] = disk_path
-                index += 1
+                status_color = Colors.OKGREEN
             
-            # Display with index number for available disks
-            if status == "available":
-                display_index = len(disk_index_map)
-                print(f"  [{display_index}] {disk_path} - {disk_info['disk_model']} ({disk_info['raw_disk_size']}) [{status}]")
-            else:
-                print(f"      {disk_path} - {disk_info['disk_model']} ({disk_info['raw_disk_size']}) [{status}]")
+            # All disks are selectable
+            available_disks.append(disk_path)
+            disk_index_map[index] = disk_path
+            
+            # Display with index number and color coding
+            print(f"  [{index}] {disk_path} - {disk_info['disk_model']} ({disk_info['raw_disk_size']}) {status_color}[{status}]{Colors.ENDC}")
+            index += 1
         
         if not available_disks:
-            print("\nNo available disks to configure.")
+            print("\nNo disks found.")
             break
         
         # Prompt for disk selection
@@ -682,44 +874,376 @@ def cmd_configure(args) -> int:
             elif user_input:
                 disk_to_configure = f"/dev/{user_input}"
             
-            # Verify it's in available disks
-            if disk_to_configure not in available_disks:
+            # Verify it's in the system
+            if disk_to_configure not in system:
                 log_error(f"Invalid disk selection: {user_input}")
                 continue
         
         disk_info = system[disk_to_configure]
         
-        # Warning about destructive operation
-        print(f"\n{Colors.WARNING}WARNING: This will destroy all data on {disk_to_configure}!{Colors.ENDC}")
-        print(f"Disk: {disk_info['disk_model']} ({disk_info['raw_disk_size']})")
+        # Store original device path and unique_id for device rename detection
+        original_device_path = disk_to_configure
+        device_serial = disk_info['disk_serial']
+        unique_id = disk_info.get('unique_id')
         
-        if not prompt_yes_no("Continue with this disk?", default=False):
+        # Validate we have a unique identifier
+        if not unique_id:
+            log_error(f"Cannot configure disk {disk_to_configure}: no unique identifier available")
+            log_error("This is a system error - please report this bug")
             continue
+        
+        # Warn if disk has no serial or duplicate serial
+        if unique_id.startswith('NO_SERIAL_'):
+            log_warning(f"This disk has no serial number. Using device path for tracking.")
+            log_warning(f"If the device is disconnected/reconnected, tracking may be lost!")
+        elif '_' in unique_id and not unique_id.startswith('NO_SERIAL_'):
+            log_warning(f"This disk has a duplicate serial number: {device_serial}")
+            log_warning(f"Using unique ID: {unique_id}")
+        
+        # Check if disk is already configured and warn user
+        needs_cleanup = False
+        if disk_info['bcache'] or disk_info['nonraid_config']:
+            print(f"\n{Colors.WARNING}WARNING: {disk_to_configure} is already configured!{Colors.ENDC}")
+            if disk_info['bcache']:
+                print(f"  Current bcache device: {disk_info['bcache']['device']}")
+            if disk_info['nonraid_config']:
+                print(f"  Current nonraid slot: {disk_info['nonraid_config']['slot']} ({disk_info['nonraid_config']['type']})")
+            print(f"{Colors.WARNING}Reconfiguring will DESTROY the existing configuration and ALL data!{Colors.ENDC}")
+            if not prompt_yes_no("Are you sure you want to reconfigure this disk?", default=False):
+                continue
+            needs_cleanup = True
+        
+        # Consolidated warning and confirmation prompt
+        print()
+        print(f"Disk: {disk_info['disk_model']} ({disk_info['raw_disk_size']})")
+        if device_serial:
+            print(f"Serial number: {device_serial}")
+        else:
+            print(f"Serial number: NOT AVAILABLE")
+        if unique_id != device_serial:
+            print(f"Unique ID: {unique_id}")
+        confirm_msg = "Continue with this disk? This will be unrecoverable"
+        if not prompt_yes_no(confirm_msg, default=False):
+            log_info("Skipping disk configuration")
+            continue
+        
+        # Step 0: Cleanup if disk is already configured
+        if needs_cleanup:
+            log_info(f"Cleaning up existing configuration on {disk_to_configure}...")
+            
+            # If there's a bcache device, we need to clean up everything on top of it
+            if disk_info['bcache']:
+                bcache_dev = disk_info['bcache']['device']
+                bcache_name = bcache_dev.replace('/dev/', '')
+                
+                # Step 0.1: Check for and remove LVM volumes on the bcache device
+                log_info(f"Checking for LVM volumes on {bcache_dev}...")
+                try:
+                    # First, remove any device-mapper entries
+                    result = run_command(['dmsetup', 'ls', '--target', 'linear'], check=False)
+                    if result.returncode == 0:
+                        for line in result.stdout.strip().split('\n'):
+                            if line and bcache_name in line:
+                                dm_name = line.split()[0]
+                                log_info(f"Removing device-mapper entry: {dm_name}")
+                                run_command(['dmsetup', 'remove', dm_name], check=False)
+                                import time
+                                time.sleep(1)
+                    
+                    # Check if there are any LVM physical volumes
+                    result = run_command(['pvs', '--noheadings', '-o', 'pv_name'], check=False)
+                    if result.returncode == 0:
+                        for line in result.stdout.strip().split('\n'):
+                            pv_name = line.strip()
+                            if bcache_name in pv_name or bcache_dev in pv_name:
+                                log_info(f"Found LVM PV: {pv_name}")
+                                
+                                # Get volume group name
+                                vg_result = run_command(['pvs', '--noheadings', '-o', 'vg_name', pv_name], check=False)
+                                if vg_result.returncode == 0:
+                                    vg_name = vg_result.stdout.strip()
+                                    if vg_name:
+                                        log_info(f"Removing volume group: {vg_name}")
+                                        run_command(['vgremove', '-f', vg_name], check=False)
+                                        import time
+                                        time.sleep(1)
+                                
+                                # Remove physical volume
+                                log_info(f"Removing physical volume: {pv_name}")
+                                run_command(['pvremove', '-ff', pv_name], check=False)
+                                import time
+                                time.sleep(1)
+                except Exception as e:
+                    log_verbose(f"LVM cleanup issue (may be normal): {e}")
+                
+                # Step 0.2: Unmount any partitions
+                log_info(f"Checking for mounted partitions on {bcache_dev}...")
+                try:
+                    result = run_command(['lsblk', '-nlo', 'NAME,MOUNTPOINT', bcache_dev], check=False)
+                    if result.returncode == 0:
+                        for line in result.stdout.strip().split('\n'):
+                            parts = line.split(None, 1)
+                            if len(parts) == 2 and parts[1]:
+                                mountpoint = parts[1]
+                                log_info(f"Unmounting {mountpoint}...")
+                                run_command(['umount', '-f', mountpoint], check=False)
+                except Exception as e:
+                    log_verbose(f"Unmount issue (may be normal): {e}")
+                
+                # Step 0.3: Remove partitions from bcache device
+                log_info(f"Removing partitions from {bcache_dev}...")
+                try:
+                    # Use wipefs on the bcache device itself
+                    run_command(['wipefs', '-a', bcache_dev], check=False)
+                    import time
+                    time.sleep(1)
+                except Exception as e:
+                    log_verbose(f"Could not wipe bcache device partitions: {e}")
+                
+                # Step 0.4: Unregister the bcache device
+                log_info(f"Unregistering bcache device {bcache_dev}...")
+                try:
+                    # Stop the bcache device
+                    stop_path = f"/sys/block/{bcache_name}/bcache/stop"
+                    if os.path.exists(stop_path):
+                        with open(stop_path, 'w') as f:
+                            f.write('1')
+                        log_verbose(f"Stopped bcache device {bcache_dev}")
+                        import time
+                        time.sleep(2)
+                except Exception as e:
+                    log_verbose(f"Could not stop bcache device: {e}")
+                
+                # Try to detach from backing device
+                try:
+                    dev_name = disk_to_configure.replace('/dev/', '')
+                    detach_path = f"/sys/block/{dev_name}/bcache/detach"
+                    if os.path.exists(detach_path):
+                        with open(detach_path, 'w') as f:
+                            f.write('1')
+                        log_verbose(f"Detached bcache from {disk_to_configure}")
+                        import time
+                        time.sleep(2)
+                except Exception as e:
+                    log_verbose(f"Could not detach bcache: {e}")
+                
+                # Unregister the backing device
+                try:
+                    dev_name = disk_to_configure.replace('/dev/', '')
+                    unregister_path = f"/sys/block/{dev_name}/bcache/unregister"
+                    if os.path.exists(unregister_path):
+                        with open(unregister_path, 'w') as f:
+                            f.write('1')
+                        log_info(f"Unregistered bcache backing device")
+                        import time
+                        time.sleep(2)
+                except Exception as e:
+                    log_verbose(f"Could not unregister backing device: {e}")
+            
+            # Step 0.5: Wipe filesystem signatures from the raw disk
+            log_info(f"Wiping filesystem signatures from {disk_to_configure}...")
+            try:
+                run_command(['wipefs', '-af', disk_to_configure])
+                log_info("Filesystem signatures wiped")
+            except Exception as e:
+                log_error(f"Failed to wipe filesystem signatures: {e}")
+                continue
+            
+            # Step 0.6: Zero out the superblock area
+            log_info(f"Clearing bcache superblock from {disk_to_configure}...")
+            try:
+                # Zero out first 4MB and bcache superblock location
+                run_command(['dd', 'if=/dev/zero', f'of={disk_to_configure}', 'bs=1M', 'count=4', 'conv=fsync'], check=False)
+                import time
+                time.sleep(1)
+            except Exception as e:
+                log_verbose(f"Could not zero superblock: {e}")
+            
+            # Step 0.7: Reload partition table
+            log_info(f"Reloading partition table for {disk_to_configure}...")
+            try:
+                run_command(['blockdev', '--rereadpt', disk_to_configure], check=False)
+                run_command(['partprobe', disk_to_configure], check=False)
+                log_verbose("Partition table reloaded")
+            except Exception as e:
+                log_verbose(f"Could not reload partition table: {e}")
+            
+            # Step 0.8: Wait for udev to settle
+            log_info("Waiting for device to become available...")
+            try:
+                run_command(['udevadm', 'settle', '-t', '10'], check=False)
+            except Exception as e:
+                log_verbose(f"udevadm settle failed: {e}")
+            
+            # Additional wait to ensure device is fully available
+            import time
+            time.sleep(3)
+            
+            # Verify device exists before proceeding
+            if not os.path.exists(disk_to_configure):
+                log_warning(f"Device {disk_to_configure} not found after cleanup!")
+                log_info("The device may have been renamed by the kernel during cleanup.")
+                log_info(f"Searching for disk by unique ID: {unique_id}")
+                
+                # Try to find the disk by unique ID
+                new_path = find_disk_by_unique_id(unique_id)
+                if new_path:
+                    log_info(f"Found disk at new location: {new_path}")
+                    log_info(f"Device was renamed from {disk_to_configure} to {new_path}")
+                    disk_to_configure = new_path
+                    # Update disk_info to reflect new path
+                    system = discover_system()
+                    disk_info = system[disk_to_configure]
+                    # Verify unique_id still matches
+                    if disk_info.get('unique_id') != unique_id:
+                        log_error(f"Unique ID mismatch after cleanup! Expected {unique_id}, got {disk_info.get('unique_id')}")
+                        log_error("This indicates a serious tracking issue. Aborting configuration for safety.")
+                        continue
+                else:
+                    log_error(f"Could not find disk with unique ID {unique_id}")
+                    if device_serial:
+                        log_error(f"  (Serial: {device_serial})")
+                    log_error("Please run 'show' command to see current device names.")
+                    continue
+            
+            log_info("Cleanup complete")
         
         # Step 1: Bcache Setup
         log_info(f"Creating bcache backing device on {disk_to_configure}...")
+        bcache_uuid = None
+        cache_set_uuid = None
         try:
-            run_command(['make-bcache', '-B', disk_to_configure])
+            result = run_command(['make-bcache', '-B', disk_to_configure])
+            # Parse UUID from make-bcache output
+            for line in result.stdout.split('\n'):
+                if line.startswith('UUID:'):
+                    bcache_uuid = line.split(':', 1)[1].strip()
+                    log_verbose(f"Bcache UUID: {bcache_uuid}")
+                elif line.startswith('Set UUID:'):
+                    cache_set_uuid = line.split(':', 1)[1].strip()
+                    log_verbose(f"Cache Set UUID: {cache_set_uuid}")
             log_info("Bcache created successfully")
         except Exception as e:
             log_error(f"Failed to create bcache: {e}")
             continue
         
+        # Wait for udev to create bcache device
+        log_info("Waiting for bcache device to appear...")
+        try:
+            run_command(['udevadm', 'settle', '-t', '10'], check=False)
+        except Exception as e:
+            log_verbose(f"udevadm settle failed: {e}")
+        
+        import time
+        time.sleep(2)
+        
         # Re-discover to get bcache info
         system = discover_system()
+        
+        # Check if device was renamed after bcache creation
+        if disk_to_configure not in system:
+            log_warning(f"Device {disk_to_configure} not found after bcache creation!")
+            log_info("The device may have been renamed by the kernel.")
+            log_info(f"Searching for disk by unique ID: {unique_id}")
+            
+            # Try to find the disk by unique ID
+            new_path = find_disk_by_unique_id(unique_id)
+            if new_path:
+                log_info(f"Found disk at new location: {new_path}")
+                log_info(f"Device was renamed from {disk_to_configure} to {new_path}")
+                disk_to_configure = new_path
+            else:
+                log_error(f"Could not find disk with unique ID {unique_id}")
+                if device_serial:
+                    log_error(f"  (Serial: {device_serial})")
+                log_error("Please run 'show' command to see current device names.")
+                continue
+        
         disk_info = system[disk_to_configure]
         
         if not disk_info['bcache']:
             log_error("Failed to detect bcache device after creation")
+            log_error(f"The device {disk_to_configure} may have been renamed or bcache failed to attach")
+            log_error("Please run 'show' command to check current configuration")
             continue
         
         bcache_device = disk_info['bcache']['device']
+        
+        # Verify the bcache device actually exists
+        if not os.path.exists(bcache_device):
+            log_error(f"Bcache device {bcache_device} does not exist!")
+            log_error("This may indicate a kernel issue or udev problem")
+            continue
+        
+        # Wait for bcache device to be fully ready (readable/writable)
+        log_info(f"Verifying bcache device {bcache_device} is ready...")
+        bcache_ready = False
+        for attempt in range(10):
+            try:
+                # Try to read from the device to ensure it's accessible
+                result = run_command(['blockdev', '--getsize64', bcache_device], check=False)
+                if result.returncode == 0:
+                    log_verbose(f"Bcache device is accessible (attempt {attempt + 1})")
+                    bcache_ready = True
+                    break
+                else:
+                    log_verbose(f"Bcache device not ready yet (attempt {attempt + 1})")
+            except Exception as e:
+                log_verbose(f"Error checking bcache device (attempt {attempt + 1}): {e}")
+            
+            import time
+            time.sleep(1)
+        
+        if not bcache_ready:
+            log_error(f"Bcache device {bcache_device} is not accessible after waiting!")
+            log_error("The device may be experiencing I/O errors or initialization issues")
+            continue
+        
         log_info(f"Bcache device: {bcache_device}")
+        if bcache_uuid:
+            log_info(f"Bcache UUID: {bcache_uuid}")
         
         # Step 2: Partitioning
         log_info(f"Creating partition on {bcache_device}...")
         try:
-            run_command(['sgdisk', '-o', '-a', '8', '-n', '1:32K:0', bcache_device])
+            # Bcache devices sometimes have stale GPT headers, run sgdisk twice to ensure it works
+            # First run clears the table
+            run_command(['sgdisk', '-o', '-a', '8', '-n', '1:32K:0', bcache_device], check=False)
+            
+            # Force kernel to re-read partition table after first write
+            run_command(['partprobe', bcache_device], check=False)
+            run_command(['blockdev', '--rereadpt', bcache_device], check=False)
+            run_command(['udevadm', 'settle', '-t', '5'], check=False)
+            
+            # Wait for device to stabilize after first write
+            import time
+            time.sleep(2)
+            
+            # Second run to ensure partition is actually created
+            result = run_command(['sgdisk', '-o', '-a', '8', '-n', '1:32K:0', bcache_device], check=False)
+            if result.returncode != 0:
+                log_error(f"sgdisk failed with exit code {result.returncode}")
+                log_error(f"Output: {result.stdout}")
+                log_error(f"Error: {result.stderr}")
+                
+                # Check if this is an I/O error (read error 5, exit code 4)
+                if result.returncode == 4 or 'Read error' in result.stderr or 'Read error' in result.stdout:
+                    log_error("The bcache device is experiencing I/O errors!")
+                    log_error("This may indicate the backing disk went offline or has hardware issues.")
+                    log_error(f"Please check 'dmesg' for kernel messages about {disk_to_configure}")
+                continue
+            
+            # Verify partition was created in the table
+            verify_result = run_command(['sgdisk', '-p', bcache_device], check=False)
+            if 'Number  Start' not in verify_result.stdout or verify_result.stdout.count('\n') < 10:
+                log_error("Partition table verification failed - no partition entries found")
+                log_error(f"Partition table output:\n{verify_result.stdout}")
+                continue
+            
+            # Force kernel to re-read partition table one final time
+            run_command(['partprobe', bcache_device], check=False)
+            run_command(['blockdev', '--rereadpt', bcache_device], check=False)
+            run_command(['udevadm', 'settle', '-t', '5'], check=False)
             log_info("Partition created successfully")
         except Exception as e:
             log_error(f"Failed to create partition: {e}")
@@ -728,15 +1252,33 @@ def cmd_configure(args) -> int:
         # Partition path
         partition_path = f"{bcache_device}p1"
         
-        # Wait for partition to appear
+        # Wait for partition to appear with extended timeout
         import time
-        for i in range(10):
+        log_verbose(f"Waiting for partition {partition_path} to appear...")
+        partition_appeared = False
+        for i in range(20):  # Increased from 10 to 20 iterations
             if os.path.exists(partition_path):
+                partition_appeared = True
+                log_verbose(f"Partition appeared after {i * 0.5} seconds")
                 break
+            # Try to trigger udev
+            if i == 5:
+                log_verbose("Triggering udev event...")
+                run_command(['udevadm', 'trigger', '--subsystem-match=block'], check=False)
+                run_command(['udevadm', 'settle'], check=False)
             time.sleep(0.5)
         
-        if not os.path.exists(partition_path):
-            log_error(f"Partition {partition_path} did not appear")
+        if not partition_appeared:
+            log_error(f"Partition {partition_path} did not appear after waiting")
+            # Try to list what partitions exist
+            log_error("Attempting to diagnose...")
+            try:
+                result = run_command(['lsblk', '-o', 'NAME,TYPE', bcache_device], check=False)
+                log_error(f"Current device state:\n{result.stdout}")
+                result = run_command(['sgdisk', '-p', bcache_device], check=False)
+                log_error(f"Partition table:\n{result.stdout}")
+            except Exception:
+                pass
             continue
         
         # Step 3: Size Calculation
@@ -774,16 +1316,28 @@ def cmd_configure(args) -> int:
         by_id = disk_info['bcache']['by_id'] or bcache_device
         import_cmd = f'echo "import {slot} {partition_path} 0 {part_size} 0 {os.path.basename(by_id)}" > /proc/nmdcmd'
         
-        # Store configuration
-        pending_configs[disk_to_configure] = {
+        # Store configuration with additional metadata
+        # Use unique_id as key (handles serials, missing serials, and duplicates)
+        pending_configs[unique_id] = {
             'slot': slot,
             'part_path': partition_path,
             'part_size': part_size,
             'type': disk_type,
-            'import_cmd': import_cmd
+            'import_cmd': import_cmd,
+            'disk_model': disk_info['disk_model'],
+            'disk_size': disk_info['raw_disk_size'],
+            'disk_serial': device_serial,
+            'unique_id': unique_id,
+            'disk_path': disk_to_configure,
+            'bcache_device': bcache_device,
+            'bcache_uuid': bcache_uuid
         }
         
-        log_info(f"Configuration prepared: Slot {slot}, Type {disk_type}")
+        # Display appropriate confirmation message
+        if device_serial:
+            log_info(f"Configuration prepared for {disk_info['disk_model']} (S/N: {device_serial}): Slot {slot}, Type {disk_type}")
+        else:
+            log_info(f"Configuration prepared for {disk_info['disk_model']} (ID: {unique_id}): Slot {slot}, Type {disk_type}")
         
         # Ask about additional disks
         if not prompt_yes_no("\nConfigure additional disks?", default=False):
@@ -794,19 +1348,41 @@ def cmd_configure(args) -> int:
         log_info("No configurations to commit")
         return 0
     
-    print(f"\n{Colors.BOLD}Pending configurations:{Colors.ENDC}")
-    for disk, config in pending_configs.items():
-        print(f"  {disk}: Slot {config['slot']}, Type {config['type']}")
+    print(f"\n{Colors.BOLD}{'='*80}{Colors.ENDC}")
+    print(f"{Colors.BOLD}Pending Configurations Summary{Colors.ENDC}")
+    print(f"{Colors.BOLD}{'='*80}{Colors.ENDC}")
+    for unique_id, config in pending_configs.items():
+        type_color = Colors.OKGREEN if config['type'] == 'DATA' else Colors.WARNING
+        print(f"\n{Colors.HEADER}{config['disk_path']}{Colors.ENDC} - {config['disk_model']} ({config['disk_size']})")
+        if config['disk_serial']:
+            print(f"  Serial: {config['disk_serial']}")
+        else:
+            print(f"  Serial: NOT AVAILABLE")
+        if unique_id != config['disk_serial']:
+            print(f"  Unique ID: {unique_id}")
+        print(f"  Slot: {type_color}{config['slot']}{Colors.ENDC}")
+        print(f"  Type: {type_color}{config['type']}{Colors.ENDC}")
+        print(f"  Bcache Device: {config['bcache_device']}")
+        if config.get('bcache_uuid'):
+            print(f"  Bcache UUID: {config['bcache_uuid']}")
+        print(f"  Partition: {config['part_path']}")
+        print(f"  Size: {config['part_size']} KB ({config['part_size'] // 1024 // 1024} GB)")
+    print(f"{Colors.BOLD}{'='*80}{Colors.ENDC}")
     
-    if not prompt_yes_no("\nCommit configuration and exit?", default=False):
+    if not prompt_yes_no("\nCommit configuration and import to nonraid?", default=False):
         log_warning("Configuration discarded")
         return 0
     
     # Execute import commands
     log_info("Committing configurations...")
     
-    for disk, config in pending_configs.items():
-        log_info(f"Importing {disk} to slot {config['slot']}...")
+    for unique_id, config in pending_configs.items():
+        if config['disk_serial']:
+            disk_identifier = f"{config['disk_model']} (S/N: {config['disk_serial']})"
+        else:
+            disk_identifier = f"{config['disk_model']} (ID: {unique_id})"
+        
+        log_info(f"Importing {disk_identifier} to slot {config['slot']}...")
         log_verbose(f"Command: {config['import_cmd']}")
         
         try:
@@ -819,7 +1395,7 @@ def cmd_configure(args) -> int:
             )
             
             if result.returncode == 0:
-                log_info(f"✓ {disk} imported successfully")
+                log_info(f"✓ {config['disk_path']} imported successfully")
             else:
                 log_error(f"✗ Failed to import {disk}")
                 if result.stderr:
