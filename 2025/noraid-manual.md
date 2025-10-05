@@ -145,9 +145,9 @@ root@bpve:~# device=/dev/bcache2; echo $(( $(blockdev --getsize "$device") / 2 )
 3. Configure the array.
 
 ```bash
-echo "import 0 bcache1p1 0 17578328056 0 bcache-ST18000NE000-3G6101-ZVTEFBA9" > /proc/nmdcmd
-echo "import 1 bcache0p1 0 13672382456 0 bcache-WDC_WD140EDFZ-11A0VA0-QBJ2NRVT" > /proc/nmdcmd
-echo "import 2 bcache2p1 0 17578328056 0 bcache-WDC_WD180EDGZ-11B2DA0-3FHMY6ZT" > /proc/nmdcmd
+echo "import 0 bcache1 0 17578328056 0 bcache-ST18000NE000-3G6101-ZVTEFBA9" > /proc/nmdcmd
+echo "import 1 bcache0 0 13672382456 0 bcache-WDC_WD140EDFZ-11A0VA0-QBJ2NRVT" > /proc/nmdcmd
+echo "import 2 bcache2 0 17578328056 0 bcache-WDC_WD180EDGZ-11B2DA0-3FHMY6ZT" > /proc/nmdcmd
 ```
 
 Now we see it configured as expected and we should start it.
