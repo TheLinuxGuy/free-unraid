@@ -1409,15 +1409,159 @@ def cmd_configure(args) -> int:
 
 def cmd_reset(args) -> int:
     """
-    RESET command: Reset disk configuration.
-    
-    Implementation to be defined.
-    
+    RESET command: Reset disk configuration for specified disks.
+    Usage: ./free-unraid.py reset /dev/sdb /dev/sde ...
+    For each disk passed as argument:
+      - Only operate if disk is discovered in system
+      - Check partition/bcache state before wipe
+      - Execute wipefs -af <disk>
+      - Check partition/bcache state after wipe
+      - Exit successfully if all disks are wiped and no longer visible
     Returns:
         Exit code (0 for success)
     """
-    log_warning("RESET command not yet implemented")
-    return 1
+    if not dependency_check():
+        return 1
+
+    # Discover system at start
+    system = discover_system()
+
+    # Get disks to reset from args
+    disks_to_reset = [d for d in args if d.startswith('/dev/')]
+    import time
+    failed = []
+    for disk in disks_to_reset:
+        print(f"\n{Colors.BOLD}Resetting disk: {disk}{Colors.ENDC}")
+        if disk not in system:
+            log_error(f"Disk {disk} not discovered by system. Skipping.")
+            failed.append(disk)
+            continue
+        disk_info = system[disk]
+        print(f"  Model: {disk_info['disk_model'] or 'Unknown'}")
+        print(f"  Serial: {disk_info['disk_serial'] or 'Unknown'}")
+        print(f"  Size: {disk_info['raw_disk_size'] or 'Unknown'}")
+        print(f"  Partitions: {len(disk_info['partitions'])}")
+        if disk_info['bcache']:
+            print(f"  Bcache: {disk_info['bcache']['device']}")
+        else:
+            print(f"  Bcache: Not configured")
+
+        # --- Robust cleanup: Remove bcache, partitions, superblock ---
+        # Remove bcache device if present
+        if disk_info['bcache']:
+            bcache_dev = disk_info['bcache']['device']
+            bcache_name = bcache_dev.replace('/dev/', '')
+            log_info(f"Cleaning up bcache device: {bcache_dev}")
+            # Unregister bcache device
+            try:
+                stop_path = f"/sys/block/{bcache_name}/bcache/stop"
+                if os.path.exists(stop_path):
+                    with open(stop_path, 'w') as f:
+                        f.write('1')
+                    log_verbose(f"Stopped bcache device {bcache_dev}")
+                    time.sleep(2)
+            except Exception as e:
+                log_verbose(f"Could not stop bcache device: {e}")
+            try:
+                unregister_path = f"/sys/block/{bcache_name}/bcache/unregister"
+                if os.path.exists(unregister_path):
+                    with open(unregister_path, 'w') as f:
+                        f.write('1')
+                    log_verbose(f"Unregistered bcache device {bcache_dev}")
+                    time.sleep(2)
+            except Exception as e:
+                log_verbose(f"Could not unregister bcache device: {e}")
+            # Detach bcache from backing device
+            try:
+                dev_name = disk.replace('/dev/', '')
+                detach_path = f"/sys/block/{dev_name}/bcache/detach"
+                if os.path.exists(detach_path):
+                    with open(detach_path, 'w') as f:
+                        f.write('1')
+                    log_verbose(f"Detached bcache from {disk}")
+                    time.sleep(2)
+            except Exception as e:
+                log_verbose(f"Could not detach bcache: {e}")
+
+        # Unmount all partitions
+        for part in disk_info['partitions']:
+            if part['mountpoint']:
+                try:
+                    log_info(f"Unmounting {part['name']} from {part['mountpoint']}...")
+                    run_command(['umount', '-f', part['mountpoint']], check=False)
+                except Exception as e:
+                    log_verbose(f"Unmount issue: {e}")
+
+        # Wipe filesystem signatures
+        try:
+            log_info(f"Wiping filesystem signatures from {disk}...")
+            run_command(['wipefs', '-af', disk])
+            log_info("Filesystem signatures wiped")
+        except Exception as e:
+            log_error(f"Failed to wipe {disk}: {e}")
+            failed.append(disk)
+            continue
+
+        # Zero out superblock area
+        try:
+            log_info(f"Zeroing superblock area on {disk}...")
+            run_command(['dd', 'if=/dev/zero', f'of={disk}', 'bs=1M', 'count=4', 'conv=fsync'], check=False)
+            time.sleep(1)
+        except Exception as e:
+            log_verbose(f"Could not zero superblock: {e}")
+
+        # Reload partition table
+        try:
+            run_command(['blockdev', '--rereadpt', disk], check=False)
+            run_command(['partprobe', disk], check=False)
+            log_verbose("Partition table reloaded")
+        except Exception as e:
+            log_verbose(f"Could not reload partition table: {e}")
+
+        # Wait for udev to settle
+        try:
+            run_command(['udevadm', 'settle', '-t', '10'], check=False)
+        except Exception as e:
+            log_verbose(f"udevadm settle failed: {e}")
+        time.sleep(3)
+
+        # Re-discover system after wipe
+        post_system = discover_system()
+        if disk in post_system:
+            post_info = post_system[disk]
+            still_has_parts = bool(post_info['partitions'])
+            still_has_bcache = bool(post_info['bcache'])
+            if still_has_parts or still_has_bcache:
+                log_error(f"Disk {disk} still has partitions or bcache after full cleanup!")
+                # Try to force partition removal
+                try:
+                    log_info(f"Attempting to remove all partitions from {disk}...")
+                    run_command(['sgdisk', '-Z', disk], check=False)
+                    run_command(['partprobe', disk], check=False)
+                    run_command(['blockdev', '--rereadpt', disk], check=False)
+                    run_command(['udevadm', 'settle', '-t', '5'], check=False)
+                    time.sleep(2)
+                except Exception as e:
+                    log_verbose(f"Partition removal issue: {e}")
+                # Re-check
+                post_system2 = discover_system()
+                post_info2 = post_system2.get(disk)
+                if post_info2 and (post_info2['partitions'] or post_info2['bcache']):
+                    log_error(f"Disk {disk} still not clean after forced partition removal!")
+                    failed.append(disk)
+                    continue
+                else:
+                    log_info(f"Disk {disk} wiped and partitions removed.")
+            else:
+                log_info(f"Disk {disk} wiped successfully and is clean.")
+        else:
+            log_info(f"Disk {disk} no longer visible to system after wipe (expected for full reset).")
+
+    if failed:
+        log_error(f"Reset failed for: {', '.join(failed)}")
+        return 1
+    log_info("All specified disks wiped and reset successfully.")
+    return 0
 
 
 def main():
@@ -1460,6 +1604,11 @@ def main():
         'reset',
         help='Reset disk configuration'
     )
+    parser_reset.add_argument(
+        'disks',
+        nargs='+',
+        help='Disk devices to reset (e.g. /dev/sdb /dev/sdc)'
+    )
     parser_reset.set_defaults(func=cmd_reset)
     
     # Parse arguments
@@ -1477,7 +1626,10 @@ def main():
     # Execute command
     if hasattr(args, 'func'):
         try:
-            return args.func(args)
+            if args.command == 'reset':
+                return args.func(args.disks)
+            else:
+                return args.func(args)
         except KeyboardInterrupt:
             print("\n\nOperation cancelled by user")
             return 130
